@@ -5,7 +5,7 @@ const db = firebase.firestore();
 const uid = localStorage.getItem('workerUID');
 const workerName = localStorage.getItem('workerName') || "Worker";
 
-// Redirect if no UID (not logged in)
+// Redirect if no UID
 if (!uid) {
   alert("Please login first.");
   window.location.href = "index.html";
@@ -20,21 +20,41 @@ function logout() {
   window.location.href = "index.html";
 }
 
-// Function to delete a work record
+// Global variable to store worker data
+let workerSalaryType = 'daily';
+let workerMonthlyAmount = 0;
+
+// Load worker salary type and amount from 'salaries' collection
+async function loadWorkerSalaryType() {
+  try {
+    const doc = await db.collection('salaries').doc(uid).get();
+    if (doc.exists) {
+      const data = doc.data();
+      workerSalaryType = data.salaryType || 'daily';
+      workerMonthlyAmount = parseFloat(data.monthlyAmount) || 0;
+      console.log(`Salary type: ${workerSalaryType}, Amount: ${workerMonthlyAmount}`);
+    } else {
+      console.warn("Salary data not found; using defaults.");
+    }
+  } catch (error) {
+    console.error("Error loading salary type:", error);
+  }
+}
+
+// Delete work record
 async function deleteWorkRecord(docId) {
   if (!confirm("Are you sure you want to delete this record?")) return;
-  
   try {
     await db.collection('workRecords').doc(docId).delete();
     alert("Record deleted successfully!");
-    fetchMyWorks(); // Refresh the list
+    fetchMyWorks();
   } catch (error) {
     console.error("Error deleting record:", error);
     alert("Failed to delete record: " + error.message);
   }
 }
 
-// Function to open edit modal
+// Open edit modal
 function openEditModal(docId) {
   db.collection('workRecords').doc(docId).get()
     .then(doc => {
@@ -45,9 +65,7 @@ function openEditModal(docId) {
         document.getElementById('editWorkDetails').value = data.workDetails || '';
         document.getElementById('editSpentAmount').value = data.spent || 0;
         document.getElementById('editSpentDetails').value = data.spentDetails || '';
-        
-        const editModal = new bootstrap.Modal(document.getElementById('editModal'));
-        editModal.show();
+        new bootstrap.Modal(document.getElementById('editModal')).show();
       } else {
         alert("Record not found!");
       }
@@ -58,7 +76,7 @@ function openEditModal(docId) {
     });
 }
 
-// Function to save edited record
+// Save edited record
 document.getElementById('saveEditBtn').addEventListener('click', async () => {
   const docId = document.getElementById('editId').value;
   const date = document.getElementById('editDate').value;
@@ -71,107 +89,74 @@ document.getElementById('saveEditBtn').addEventListener('click', async () => {
     return;
   }
 
+  const earning = workerSalaryType === 'daily' ? workerMonthlyAmount : 0;
+
   try {
     await db.collection('workRecords').doc(docId).update({
       date,
       spent,
-      earning: 500 + spent, // Assuming fixed calculation
+      earning,
       workDetails,
       spentDetails,
       lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
     });
-
     alert("Record updated successfully!");
     bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
-    fetchMyWorks(); // Refresh the list
+    fetchMyWorks();
   } catch (error) {
     console.error("Error updating record:", error);
     alert("Failed to update record: " + error.message);
   }
 });
 
-// Function to apply date filter
-function applyDateFilter() {
-  fetchMyWorks();
-}
-
-// Function to clear date filter
+// Apply & clear date filter
+function applyDateFilter() { fetchMyWorks(); }
 function clearDateFilter() {
   document.getElementById('filterFromDate').value = '';
   document.getElementById('filterToDate').value = '';
   fetchMyWorks();
 }
 
-// Function to fetch and display work records with optional date filtering
+// Fetch work records
 async function fetchMyWorks() {
   try {
     const worksTableBody = document.getElementById('worksTableBody');
     worksTableBody.innerHTML = '<tr><td colspan="7" class="text-center">Loading records...</td></tr>';
-    
-    const modal = new bootstrap.Modal(document.getElementById('worksModal'));
-    modal.show();
+    new bootstrap.Modal(document.getElementById('worksModal')).show();
 
-    // Get filter values
     const fromDate = document.getElementById('filterFromDate').value;
     const toDate = document.getElementById('filterToDate').value;
+    let query = db.collection('workRecords').where('uid', '==', uid);
 
-    let query = db.collection('workRecords')
-      .where('uid', '==', uid);
+    if (fromDate) query = query.where('date', '>=', fromDate);
+    if (toDate) query = query.where('date', '<=', toDate);
 
-    // Apply date filters if provided
-    if (fromDate) {
-      query = query.where('date', '>=', fromDate);
-    }
-    if (toDate) {
-      query = query.where('date', '<=', toDate);
-    }
-
-    // Add ordering
     query = query.orderBy('date', 'desc');
-
     const snapshot = await query.get();
-    
+
     worksTableBody.innerHTML = '';
-    
     if (snapshot.empty) {
       worksTableBody.innerHTML = '<tr><td colspan="7" class="text-center">No work records found</td></tr>';
       return;
     }
 
-    let totalSpent = 0;
-    let totalEarning = 0;
-
+    let totalSpent = 0, totalEarning = 0;
     snapshot.forEach(doc => {
       const data = doc.data();
-      const date = data.date || 'N/A';
-      const spent = Number(data.spent) || 0;
-      const earning = Number(data.earning) || 0;
-      const isPaid = data.isPaid || false;
-      
-      totalSpent += spent;
-      totalEarning += earning;
-
+      totalSpent += Number(data.spent) || 0;
+      totalEarning += Number(data.earning) || 0;
       const row = document.createElement('tr');
       row.innerHTML = `
-        <td>${date}</td>
+        <td>${data.date || 'N/A'}</td>
         <td>${data.workDetails || ''}</td>
-        <td>₹${spent.toFixed(2)}</td>
+        <td>₹${(data.spent || 0).toFixed(2)}</td>
         <td>${data.spentDetails || ''}</td>
-        <td>₹${earning.toFixed(2)}</td>
+        <td>₹${(data.earning || 0).toFixed(2)}</td>
+        <td><span class="badge ${data.isPaid ? 'badge-paid' : 'badge-pending'}">${data.isPaid ? 'Paid' : 'Pending'}</span></td>
         <td>
-          <span class="badge ${isPaid ? 'badge-paid' : 'badge-pending'}">
-            ${isPaid ? 'Paid' : 'Pending'}
-          </span>
-        </td>
-        <td>
-          <button onclick="openEditModal('${doc.id}')" class="btn btn-sm btn-outline-primary">
-            <i class="fas fa-edit"></i>
-          </button>
-          <button onclick="deleteWorkRecord('${doc.id}')" class="btn btn-sm btn-outline-danger ms-1">
-            <i class="fas fa-trash"></i>
-          </button>
-        </td>
-      `;
+          <button onclick="openEditModal('${doc.id}')" class="btn btn-sm btn-outline-primary"><i class="fas fa-edit"></i></button>
+          <button onclick="deleteWorkRecord('${doc.id}')" class="btn btn-sm btn-outline-danger ms-1"><i class="fas fa-trash"></i></button>
+        </td>`;
       worksTableBody.appendChild(row);
     });
 
@@ -180,105 +165,130 @@ async function fetchMyWorks() {
 
   } catch (error) {
     console.error("fetchMyWorks failed:", error);
-    document.getElementById('worksTableBody').innerHTML = `
-      <tr>
-        <td colspan="7" class="text-center text-danger">
-          Error loading data. Please try again.
-          ${error.code ? `<br><small>Error code: ${error.code}</small>` : ''}
-        </td>
-      </tr>`;
+    document.getElementById('worksTableBody').innerHTML = `<tr><td colspan="7" class="text-center text-danger">Error loading data. ${error.message}</td></tr>`;
   }
 }
 
-// Function to show payment details and balance
+// ======= New payment details logic =======
+async function showPaymentDetailsDaily() {
+  const workSnapshot = await db.collection('workRecords').where('uid', '==', uid).get();
+  let totalEarnings = 0;
+  workSnapshot.forEach(doc => totalEarnings += parseFloat(doc.data().earning) || 0);
+
+  await showPaymentDetailsCommon(totalEarnings);
+}
+
+async function showPaymentDetailsMonthly() {
+  const periodText = getSalaryPeriod();
+  document.getElementById('salaryPeriodText').textContent = `Salary Period: ${periodText}`;
+  document.getElementById('monthlySalaryText').textContent = `Monthly Salary: ₹${workerMonthlyAmount.toFixed(2)}`;
+
+  // Define current period: 15th to next 15th
+  const today = new Date();
+  let startDate, endDate;
+  if (today.getDate() >= 15) {
+    startDate = new Date(today.getFullYear(), today.getMonth(), 15);
+    endDate = new Date(today.getFullYear(), today.getMonth() + 1, 15);
+  } else {
+    startDate = new Date(today.getFullYear(), today.getMonth() - 1, 15);
+    endDate = new Date(today.getFullYear(), today.getMonth(), 15);
+  }
+  const startStr = startDate.toISOString().split('T')[0];
+  const endStr = endDate.toISOString().split('T')[0];
+
+  // Fetch all work records, then filter in JS
+  const workSnapshot = await db.collection('workRecords')
+    .where('uid', '==', uid)
+    .get();
+
+  let totalSpent = 0;
+  workSnapshot.forEach(doc => {
+    const data = doc.data();
+    const dateStr = data.date;
+    if (typeof dateStr === 'string' && dateStr >= startStr && dateStr < endStr) {
+      totalSpent += parseFloat(data.spent) || 0;
+    }
+  });
+
+  const totalEarnings = workerMonthlyAmount + totalSpent;
+  await showPaymentDetailsCommon(totalEarnings);
+}
+
+function getSalaryPeriod() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+
+  let fromDate, toDate;
+  if (today.getDate() >= 15) {
+    fromDate = new Date(year, month, 15);
+    toDate = new Date(year, month + 1, 15);
+  } else {
+    fromDate = new Date(year, month - 1, 15);
+    toDate = new Date(year, month, 15);
+  }
+
+  const options = { day: 'numeric', month: 'short', year: 'numeric' };
+  return `${fromDate.toLocaleDateString('en-IN', options)} to ${toDate.toLocaleDateString('en-IN', options)}`;
+}
+
+async function showPaymentDetailsCommon(totalEarnings) {
+  const paymentSnapshot = await db.collection('payments').where('workerId', '==', uid).orderBy('date', 'desc').get();
+  let totalReceived = 0;
+  const paymentsBody = document.getElementById('paymentDetailsBody');
+  paymentsBody.innerHTML = '';
+  paymentSnapshot.forEach(doc => {
+    const p = doc.data();
+    totalReceived += parseFloat(p.amount) || 0;
+
+    let formattedDate = 'N/A';
+    if (p.date?.toDate) formattedDate = p.date.toDate().toISOString().split('T')[0];
+    else if (typeof p.date === 'string') formattedDate = p.date;
+
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${formattedDate}</td><td>₹${(p.amount || 0).toFixed(2)}</td><td>${p.method || ''}</td><td>${p.note || ''}</td>`;
+    paymentsBody.appendChild(row);
+  });
+
+  if (paymentSnapshot.empty) {
+    paymentsBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No payments received yet</td></tr>';
+  }
+
+  document.getElementById('totalEarningsDisplay').textContent = `₹${totalEarnings.toFixed(2)}`;
+  document.getElementById('totalReceivedDisplay').textContent = `₹${totalReceived.toFixed(2)}`;
+
+  const balance = totalEarnings - totalReceived;
+  const balanceEl = document.getElementById('balanceAmountDisplay');
+  balanceEl.textContent = `₹${Math.abs(balance).toFixed(2)}`;
+  document.getElementById('balanceStatus').textContent = balance > 0 ? 'Payment Due' : balance < 0 ? 'Advance Paid' : 'Fully Paid';
+  balanceEl.className = balance > 0 ? 'balance-negative' : balance < 0 ? 'balance-positive' : '';
+
+  new bootstrap.Modal(document.getElementById('paymentDetailsModal')).show();
+}
+
+// Main showPaymentDetails decides which to use
 async function showPaymentDetails() {
-  try {
-    // Get work records
-    const workRecordsSnapshot = await db.collection('workRecords')
-      .where('uid', '==', uid)
-      .get();
-    
-    let totalEarnings = 0;
-    workRecordsSnapshot.forEach(doc => {
-      const data = doc.data();
-      totalEarnings += parseFloat(data.earning) || 0;
-    });
-
-    // Get payment records
-    const paymentsSnapshot = await db.collection('payments')
-      .where('workerId', '==', uid)
-      .orderBy('date', 'desc')
-      .get();
-    
-    let totalReceived = 0;
-    const paymentsBody = document.getElementById('paymentDetailsBody');
-    paymentsBody.innerHTML = '';
-    
-    paymentsSnapshot.forEach(doc => {
-      const payment = doc.data();
-      const amount = parseFloat(payment.amount) || 0;
-      totalReceived += amount;
-      
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${payment.paymentDate || 'N/A'}</td>
-        <td>₹${amount.toFixed(2)}</td>
-        <td>${payment.method || 'N/A'}</td>
-        <td>${payment.note || ''}</td>
-      `;
-      paymentsBody.appendChild(row);
-    });
-
-    if (paymentsSnapshot.empty) {
-      paymentsBody.innerHTML = `
-        <tr>
-          <td colspan="4" class="text-center text-muted">No payments received yet</td>
-        </tr>
-      `;
-    }
-
-    // Update summary displays
-    document.getElementById('totalEarningsDisplay').textContent = `₹${totalEarnings.toFixed(2)}`;
-    document.getElementById('totalReceivedDisplay').textContent = `₹${totalReceived.toFixed(2)}`;
-    
-    // Calculate and display balance
-    const balance = totalEarnings - totalReceived;
-    const balanceElement = document.getElementById('balanceAmountDisplay');
-    balanceElement.textContent = `₹${Math.abs(balance).toFixed(2)}`;
-    
-    if (balance > 0) {
-      balanceElement.className = 'balance-negative';
-      document.getElementById('balanceStatus').textContent = 'Payment Due';
-    } else if (balance < 0) {
-      balanceElement.className = 'balance-positive';
-      document.getElementById('balanceStatus').textContent = 'Advance Paid';
-    } else {
-      balanceElement.className = '';
-      document.getElementById('balanceStatus').textContent = 'Fully Paid';
-    }
-
-    const paymentModal = new bootstrap.Modal(document.getElementById('paymentDetailsModal'));
-    paymentModal.show();
-
-  } catch (error) {
-    console.error("Error in showPaymentDetails:", error);
-    alert("Failed to load payment details: " + error.message);
+  await loadWorkerSalaryType();
+  if (workerSalaryType === 'monthly') {
+    await showPaymentDetailsMonthly();
+  } else {
+    await showPaymentDetailsDaily();
   }
 }
 
-// Handle work form submission
+// Handle work form submit
 document.getElementById('workForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-
   const date = document.getElementById('workDate').value;
   const spent = parseFloat(document.getElementById('spentAmount').value) || 0;
   const workDetails = document.getElementById('workDetails').value.trim();
   const spentDetails = document.getElementById('spentDetails').value.trim();
-
   if (!date || !workDetails || !spentDetails) {
     alert("Please fill all required fields");
     return;
   }
+
+  const earning = workerSalaryType === 'daily' ? workerMonthlyAmount : 0;
 
   try {
     await db.collection('workRecords').add({
@@ -286,49 +296,34 @@ document.getElementById('workForm').addEventListener('submit', async (e) => {
       workerName,
       date,
       spent,
-      earning: 500 + spent, // Assuming fixed calculation
+      earning,
       workDetails,
       spentDetails,
       isPaid: false,
       timestamp: firebase.firestore.FieldValue.serverTimestamp()
     });
-
     alert("Work record added successfully!");
     document.getElementById('workForm').reset();
-    fetchMyWorks(); // Refresh the list if modal is open
+    fetchMyWorks();
   } catch (error) {
     console.error("Failed to add record:", error);
     alert(`Failed to add record: ${error.message}`);
   }
 });
 
-// Initialize page
-document.addEventListener('DOMContentLoaded', () => {
-  if (!uid) {
-    window.location.href = "index.html";
-    return;
-  }
-
-  // Set today's date as default
-  const today = new Date().toISOString().split('T')[0];
-  document.getElementById('workDate').value = today;
-  
-  // Set default filter dates (current month)
-  const now = new Date();
-  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-  document.getElementById('filterFromDate').value = firstDay;
-  
-  // Verify Firebase connection
-  db.collection('test').doc('test').get()
-    .then(() => console.log("Firestore connection OK"))
-    .catch(err => console.error("Firestore connection failed:", err));
+// Init page
+document.addEventListener('DOMContentLoaded', async () => {
+  if (!uid) { window.location.href = "index.html"; return; }
+  document.getElementById('workDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('filterFromDate').value = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+  await loadWorkerSalaryType();
 });
 
-// Make functions available globally
-window.showMyWorks = fetchMyWorks;
+// Expose to global
+window.logout = logout;
 window.openEditModal = openEditModal;
 window.deleteWorkRecord = deleteWorkRecord;
-window.logout = logout;
 window.applyDateFilter = applyDateFilter;
 window.clearDateFilter = clearDateFilter;
 window.showPaymentDetails = showPaymentDetails;
+window.showMyWorks = fetchMyWorks;
