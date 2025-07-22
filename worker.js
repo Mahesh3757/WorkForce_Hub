@@ -173,7 +173,12 @@ async function fetchMyWorks() {
 async function showPaymentDetailsDaily() {
   const workSnapshot = await db.collection('workRecords').where('uid', '==', uid).get();
   let totalEarnings = 0;
-  workSnapshot.forEach(doc => totalEarnings += parseFloat(doc.data().earning) || 0);
+  workSnapshot.forEach(doc => {
+    const data = doc.data();
+    const earning = parseFloat(data.earning) || 0;
+    const spent = parseFloat(data.spent) || 0;
+    totalEarnings += earning + spent;
+  });
 
   await showPaymentDetailsCommon(totalEarnings);
 }
