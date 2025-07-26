@@ -5,6 +5,7 @@ const db = firebase.firestore();
 let allWorkers = [];
 let allRecords = [];
 let allPayments = [];
+let allSalaries = {}; // To store salary information
 
 // Logout function
 function logout() {
@@ -74,6 +75,13 @@ async function fetchAllWorkers() {
       </div>
     `;
     
+    // First fetch all salary information
+    const salariesSnapshot = await db.collection('salaries').get();
+    allSalaries = {};
+    salariesSnapshot.forEach(doc => {
+      allSalaries[doc.id] = doc.data();
+    });
+    
     const snapshot = await db.collection('workers').get();
     allWorkers = [];
     
@@ -90,6 +98,7 @@ async function fetchAllWorkers() {
     const workerPromises = snapshot.docs.map(async (doc) => {
       const workerData = doc.data();
       const workerId = doc.id;
+      const salaryInfo = allSalaries[workerId] || { salaryType: 'daily', monthlyAmount: 0 };
       
       const recordsSnapshot = await db.collection('workRecords')
         .where('uid', '==', workerId)
@@ -104,6 +113,11 @@ async function fetchAllWorkers() {
         totalEarning += parseFloat(recordData.earning) || 0;
       });
 
+      // For monthly workers, add their monthly salary to total earning
+      if (salaryInfo.salaryType === 'monthly') {
+        totalEarning += parseFloat(salaryInfo.monthlyAmount) || 0;
+      }
+
       const paymentsSnapshot = await db.collection('payments')
         .where('workerId', '==', workerId)
         .get();
@@ -113,7 +127,7 @@ async function fetchAllWorkers() {
         totalPayments += parseFloat(paymentDoc.data().amount) || 0;
       });
 
-      const balanceDue = totalEarning - totalPayments;
+      const balanceDue = totalEarning - totalPayments + totalSpent;
       
       return {
         id: workerId,
@@ -122,7 +136,9 @@ async function fetchAllWorkers() {
         totalEarning,
         totalPayments,
         balanceDue,
-        recordCount: recordsSnapshot.size
+        recordCount: recordsSnapshot.size,
+        salaryType: salaryInfo.salaryType,
+        monthlySalary: salaryInfo.monthlyAmount || 0
       };
     });
     
@@ -140,7 +156,6 @@ async function fetchAllWorkers() {
     `;
   }
 }
-
 // Render workers in the workers view
 function renderWorkers(workers) {
   const workersContainer = document.getElementById('workersContainer');
@@ -159,6 +174,19 @@ function renderWorkers(workers) {
   workers.forEach(worker => {
     const workerCard = document.createElement('div');
     workerCard.className = 'col-md-4 mb-4';
+    
+    // Determine badge and icon based on salary type
+    const salaryBadge = worker.salaryType === 'monthly' ? 
+      `<span class="badge bg-success me-1"><i class="fas fa-calendar-alt me-1"></i>Monthly</span>` : 
+      `<span class="badge bg-info me-1"><i class="fas fa-calendar-day me-1"></i>Daily</span>`;
+    
+    // Add monthly salary if applicable
+    const monthlySalaryDisplay = worker.salaryType === 'monthly' ? 
+      `<div class="mt-2">
+        <small class="text-muted">Monthly Salary</small>
+        <p class="mb-0">₹${worker.monthlySalary.toFixed(2)}</p>
+      </div>` : '';
+    
     workerCard.innerHTML = `
       <div class="card worker-card h-100">
         <div class="card-body">
@@ -168,7 +196,8 @@ function renderWorkers(workers) {
               <p class="card-text text-muted mb-1">
                 <i class="fas fa-id-card me-1"></i> ${worker.id}
               </p>
-              
+              ${salaryBadge}
+              ${monthlySalaryDisplay}
             </div>
             <span class="badge bg-primary rounded-pill">${worker.recordCount} records</span>
           </div>
@@ -203,44 +232,104 @@ function renderWorkers(workers) {
 }
 
 async function showWorkerDetails(workerId) {
-    try {
-      const worker = allWorkers.find(w => w.id === workerId);
-      if (!worker) {
-        throw new Error("Worker not found");
+  try {
+    const worker = allWorkers.find(w => w.id === workerId);
+    if (!worker) {
+      throw new Error("Worker not found");
+    }
+
+    // Set basic worker info
+    const workerModalTitle = document.getElementById('workerModalTitle');
+    const workerDetailName = document.getElementById('workerDetailName');
+    const workerDetailContact = document.getElementById('workerDetailContact');
+    
+    if (workerModalTitle) workerModalTitle.textContent = worker.name || worker.id || 'Worker Details';
+    if (workerDetailName) workerDetailName.textContent = worker.name || worker.id || 'Unknown Worker';
+    if (workerDetailContact) workerDetailContact.textContent = worker.phone ? `Phone: ${worker.phone}` : 'No contact info';
+
+    // Get salary info (default to daily if not set)
+    const salaryInfo = allSalaries[workerId] || { salaryType: 'daily', monthlyAmount: 0, dailyAmount: 0 };
+    const workerSalaryTypeEl = document.getElementById('workerSalaryType');
+    const workerMonthlySalaryEl = document.getElementById('workerMonthlySalary');
+    
+    if (workerSalaryTypeEl) workerSalaryTypeEl.textContent = salaryInfo.salaryType === 'monthly' ? 'Monthly Salary' : 'Daily Worker';
+    if (workerMonthlySalaryEl) {
+      if (salaryInfo.salaryType === 'monthly') {
+        workerMonthlySalaryEl.textContent = `₹${salaryInfo.monthlyAmount.toFixed(2)}`;
+      } else {
+        workerMonthlySalaryEl.textContent = `₹${salaryInfo.dailyAmount.toFixed(2)} per day`;
       }
-  
-      // Set basic worker info
-      document.getElementById('workerModalTitle').textContent = worker.name || worker.id || 'Worker Details';
-      document.getElementById('workerDetailName').textContent = worker.name || worker.id || 'Unknown Worker';
-      document.getElementById('workerDetailContact').textContent = worker.phone ? `Phone: ${worker.phone}` : 'No contact info';
-  
-      // Set totals
-      document.getElementById('workerTotalSpent').textContent = `₹${worker.totalSpent.toFixed(2)}`;
-      document.getElementById('workerTotalEarning').textContent = `₹${worker.totalEarning.toFixed(2)}`;
-  
-      // Calculate balance (Earnings - Payments)
-      const paymentsSnapshot = await db.collection('payments')
-        .where('workerId', '==', workerId)
-        .get();
+    }
+
+    // Calculate total earnings, spent, and payments
+    const [workRecordsSnapshot, paymentRecordsSnapshot] = await Promise.all([
+      db.collection('workRecords').where('uid', '==', workerId).get(),
+      db.collection('payments').where('workerId', '==', workerId).get()
+    ]);
+
+    let totalSpent = 0;
+    let totalEarnings = 0;
+    let totalPayments = 0;
+    let totalWorkEarnings = 0; // New variable to track work-specific earnings
+
+    // Calculate total spent from work records
+    workRecordsSnapshot.forEach(doc => {
+      const data = doc.data();
+      totalSpent += parseFloat(data.spent) || 0;
       
-      let totalPayments = 0;
-      paymentsSnapshot.forEach(doc => {
-        totalPayments += parseFloat(doc.data().amount) || 0;
-      });
-  
-      const balance = worker.totalEarning - totalPayments;
-      const netBalanceElement = document.getElementById('workerNetBalance');
+      // For daily workers, sum up the earnings from each work record
+      if (salaryInfo.salaryType === 'daily') {
+        totalWorkEarnings += parseFloat(data.earning) || 0;
+      }
+    });
+
+    if (salaryInfo.salaryType === 'monthly') {
+      // Monthly worker: Salary + Spent (unchanged)
+      totalEarnings = parseFloat(salaryInfo.monthlyAmount) + totalSpent;
+    } else {
+      // Daily worker: Sum of earnings from each work record + Spent
+      // This ensures we're using the actual recorded earnings rather than calculating
+      totalEarnings = totalWorkEarnings + totalSpent;
+      
+      // If no earnings recorded (legacy data), fall back to calculation
+      if (totalWorkEarnings === 0 && workRecordsSnapshot.size > 0) {
+        totalEarnings = (parseFloat(salaryInfo.dailyAmount) * workRecordsSnapshot.size) + totalSpent;
+      }
+    }
+
+    // Calculate total payments received
+    paymentRecordsSnapshot.forEach(doc => {
+      totalPayments += parseFloat(doc.data().amount) || 0;
+    });
+
+
+    // Calculate balance
+    const balance = totalEarnings - totalPayments;
+    // Display totals
+    const workerTotalSpentEl = document.getElementById('workerTotalSpent');
+    const workerTotalEarningEl = document.getElementById('workerTotalEarning');
+    const netBalanceElement = document.getElementById('workerNetBalance');
+    
+    if (workerTotalSpentEl) workerTotalSpentEl.textContent = `₹${totalSpent.toFixed(2)}`;
+    if (workerTotalEarningEl) workerTotalEarningEl.textContent = `₹${totalEarnings.toFixed(2)}`;
+    
+    if (netBalanceElement) {
       netBalanceElement.textContent = `₹${balance.toFixed(2)}`;
       netBalanceElement.className = balance > 0 ? 'text-danger' : 'text-success';
-  
-      // Add payment button
-      document.getElementById('addPaymentBtn').onclick = () => openAddPaymentModal(workerId);
-  
-      // Load worker's records
-      const recordsBody = document.getElementById('workerRecordsBody');
+    }
+
+    // Add payment button
+    const addPaymentBtn = document.getElementById('addPaymentBtn');
+    if (addPaymentBtn) {
+      addPaymentBtn.onclick = () => openAddPaymentModal(workerId);
+    }
+
+    // Load worker's records table
+    const recordsBody = document.getElementById('workerRecordsBody');
+    if (recordsBody) {
       recordsBody.innerHTML = `
         <tr>
-          <td colspan="6" class="text-center">
+          <td colspan="7" class="text-center">
             <div class="spinner-border spinner-border-sm" role="status">
               <span class="visually-hidden">Loading...</span>
             </div>
@@ -248,9 +337,9 @@ async function showWorkerDetails(workerId) {
           </td>
         </tr>
       `;
-  
-      // Get both work records and payment records
-      const [workRecordsSnapshot, paymentRecordsSnapshot] = await Promise.all([
+
+      // Get sorted records for display
+      const [sortedWorkRecords, sortedPaymentRecords] = await Promise.all([
         db.collection('workRecords')
           .where('uid', '==', workerId)
           .orderBy('date', 'desc')
@@ -260,24 +349,11 @@ async function showWorkerDetails(workerId) {
           .orderBy('date', 'desc')
           .get()
       ]);
-  
+
       recordsBody.innerHTML = '';
-  
-      // Create table header
-      const headerRow = document.createElement('tr');
-      headerRow.innerHTML = `
-        <th>Date</th>
-        <th>Type</th>
-        <th>Description</th>
-        <th>Spent (₹)</th>
-        <th>Earning (₹)</th>
-        <th>Details</th>
-        <th>Actions</th>
-      `;
-      recordsBody.appendChild(headerRow);
-  
-      // Add work records
-      workRecordsSnapshot.forEach(doc => {
+
+      // Add work records to table
+      sortedWorkRecords.forEach(doc => {
         const data = doc.data();
         const row = document.createElement('tr');
         row.innerHTML = `
@@ -287,13 +363,18 @@ async function showWorkerDetails(workerId) {
           <td>₹${parseFloat(data.spent || 0).toFixed(2)}</td>
           <td class="text-success">+₹${parseFloat(data.earning || 0).toFixed(2)}</td>
           <td>${data.spentDetails || ''}</td>
-          <td></td>
+          <td>
+            <button onclick="deleteRecord('${doc.id}')" 
+                    class="btn btn-sm btn-outline-danger">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
         `;
         recordsBody.appendChild(row);
       });
-  
-      // Add payment records
-      paymentRecordsSnapshot.forEach(doc => {
+
+      // Add payment records to table
+      sortedPaymentRecords.forEach(doc => {
         const data = doc.data();
         const row = document.createElement('tr');
         row.innerHTML = `
@@ -312,8 +393,8 @@ async function showWorkerDetails(workerId) {
         `;
         recordsBody.appendChild(row);
       });
-  
-      if (workRecordsSnapshot.empty && paymentRecordsSnapshot.empty) {
+
+      if (sortedWorkRecords.empty && sortedPaymentRecords.empty) {
         recordsBody.innerHTML = `
           <tr>
             <td colspan="7" class="text-center text-muted py-4">
@@ -322,10 +403,12 @@ async function showWorkerDetails(workerId) {
           </tr>
         `;
       }
-  
-    } catch (error) {
-      console.error("Error in showWorkerDetails:", error);
-      const recordsBody = document.getElementById('workerRecordsBody');
+    }
+
+  } catch (error) {
+    console.error("Error in showWorkerDetails:", error);
+    const recordsBody = document.getElementById('workerRecordsBody');
+    if (recordsBody) {
       recordsBody.innerHTML = `
         <tr>
           <td colspan="7" class="text-center text-danger py-4">
@@ -334,11 +417,14 @@ async function showWorkerDetails(workerId) {
         </tr>
       `;
     }
-  
-    const workerModal = new bootstrap.Modal(document.getElementById('workerModal'));
+  }
+
+  const workerModalElement = document.getElementById('workerModal');
+  if (workerModalElement) {
+    const workerModal = new bootstrap.Modal(workerModalElement);
     workerModal.show();
   }
-  
+}
 // Fetch all work records
 async function fetchAllRecords() {
   try {
@@ -491,51 +577,52 @@ function updateWorkerFilter() {
 
 // Filter records based on filters
 function filterRecords() {
-    const fromDate = document.getElementById('filterFromDate').value;
-    const toDate = document.getElementById('filterToDate').value;
-    const monthFilter = document.getElementById('filterMonth').value;
-    const workerFilter = document.getElementById('filterWorker').value;
-    
-    let filteredRecords = [...allRecords];
-    
-    // Date range filter
-    if (fromDate || toDate) {
-      filteredRecords = filteredRecords.filter(record => {
-        const recordDate = record.date;
-        if (!recordDate) return false;
-        
-        const datePassesFrom = !fromDate || recordDate >= fromDate;
-        const datePassesTo = !toDate || recordDate <= toDate;
-        
-        return datePassesFrom && datePassesTo;
-      });
-    }
-    
-    // Month filter
-    if (monthFilter) {
-      filteredRecords = filteredRecords.filter(record => {
-        if (!record.date) return false;
-        return record.date.split('-')[1] === monthFilter;
-      });
-    }
-    
-    // Worker filter
-    if (workerFilter) {
-      filteredRecords = filteredRecords.filter(record => record.workerId === workerFilter);
-    }
-    
-    renderRecords(filteredRecords);
+  const fromDate = document.getElementById('filterFromDate').value;
+  const toDate = document.getElementById('filterToDate').value;
+  const monthFilter = document.getElementById('filterMonth').value;
+  const workerFilter = document.getElementById('filterWorker').value;
+  
+  let filteredRecords = [...allRecords];
+  
+  // Date range filter
+  if (fromDate || toDate) {
+    filteredRecords = filteredRecords.filter(record => {
+      const recordDate = record.date;
+      if (!recordDate) return false;
+      
+      const datePassesFrom = !fromDate || recordDate >= fromDate;
+      const datePassesTo = !toDate || recordDate <= toDate;
+      
+      return datePassesFrom && datePassesTo;
+    });
   }
   
-  // Reset all filters
-  function resetFilters() {
-    document.getElementById('filterFromDate').value = '';
-    document.getElementById('filterToDate').value = '';
-    document.getElementById('filterMonth').value = '';
-    document.getElementById('filterWorker').value = '';
-    
-    renderRecords(allRecords);
+  // Month filter
+  if (monthFilter) {
+    filteredRecords = filteredRecords.filter(record => {
+      if (!record.date) return false;
+      return record.date.split('-')[1] === monthFilter;
+    });
   }
+  
+  // Worker filter
+  if (workerFilter) {
+    filteredRecords = filteredRecords.filter(record => record.workerId === workerFilter);
+  }
+  
+  renderRecords(filteredRecords);
+}
+
+// Reset all filters
+function resetFilters() {
+  document.getElementById('filterFromDate').value = '';
+  document.getElementById('filterToDate').value = '';
+  document.getElementById('filterMonth').value = '';
+  document.getElementById('filterWorker').value = '';
+  
+  renderRecords(allRecords);
+}
+
 // Open edit record modal
 async function openEditRecordModal(recordId) {
   const record = allRecords.find(r => r.id === recordId);
@@ -661,7 +748,7 @@ async function fetchAllPayments() {
       try {
         const workerDoc = await db.collection('workers').doc(workerId).get();
         if (workerDoc.exists) {
-          workerId = workerDoc.data().id || workerId;
+          workerName = workerDoc.data().id || workerId;
         }
       } catch (error) {
         console.error("Error fetching worker name:", error);
