@@ -169,16 +169,11 @@ async function fetchMyWorks() {
   }
 }
 
-// ======= New payment details logic =======
+// ======= Updated payment details logic for monthly workers =======
 async function showPaymentDetailsDaily() {
   const workSnapshot = await db.collection('workRecords').where('uid', '==', uid).get();
   let totalEarnings = 0;
-  workSnapshot.forEach(doc => {
-    const data = doc.data();
-    const earning = parseFloat(data.earning) || 0;
-    const spent = parseFloat(data.spent) || 0;
-    totalEarnings += earning + spent;
-  });
+  workSnapshot.forEach(doc => totalEarnings += parseFloat(doc.data().earning) || 0);
 
   await showPaymentDetailsCommon(totalEarnings);
 }
@@ -201,24 +196,135 @@ async function showPaymentDetailsMonthly() {
   const startStr = startDate.toISOString().split('T')[0];
   const endStr = endDate.toISOString().split('T')[0];
 
-  // Fetch all work records, then filter in JS
-  const workSnapshot = await db.collection('workRecords')
-    .where('uid', '==', uid)
-    .get();
+  // Get all work records and payments for this worker
+  const [workSnapshot, paymentSnapshot] = await Promise.all([
+    db.collection('workRecords').where('uid', '==', uid).get(),
+    db.collection('payments').where('workerId', '==', uid).get()
+  ]);
 
-  let totalSpent = 0;
+  // Calculate current period expenses
+  let currentPeriodExpenses = 0;
   workSnapshot.forEach(doc => {
     const data = doc.data();
     const dateStr = data.date;
     if (typeof dateStr === 'string' && dateStr >= startStr && dateStr < endStr) {
-      totalSpent += parseFloat(data.spent) || 0;
+      currentPeriodExpenses += parseFloat(data.spent) || 0;
     }
   });
 
-  const totalEarnings = workerMonthlyAmount + totalSpent;
-  await showPaymentDetailsCommon(totalEarnings);
-}
+  // Calculate cumulative balance from ALL previous periods
+  // This is based on fixed monthly salary minus all payments received
+  let cumulativeBalance = 0;
+  
+  // Calculate total salary earned from all previous periods
+  let totalSalaryEarned = 0;
+  
+  // Count how many full months of salary the worker has earned
+  // We need to determine when the worker started working
+  let earliestWorkDate = new Date();
+  workSnapshot.forEach(doc => {
+    const data = doc.data();
+    const dateStr = data.date;
+    if (typeof dateStr === 'string') {
+      const workDate = new Date(dateStr);
+      if (workDate < earliestWorkDate) {
+        earliestWorkDate = workDate;
+      }
+    }
+  });
+  
+  // Calculate number of full monthly periods from start date to current period start
+  let periodCount = 0;
+  let periodStart = new Date(earliestWorkDate.getFullYear(), earliestWorkDate.getMonth(), 15);
+  if (earliestWorkDate.getDate() > 15) {
+    periodStart = new Date(earliestWorkDate.getFullYear(), earliestWorkDate.getMonth() + 1, 15);
+  }
+  
+  while (periodStart < startDate) {
+    periodCount++;
+    periodStart = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 15);
+  }
+  
+  totalSalaryEarned = periodCount * workerMonthlyAmount;
+  
+  // Calculate total expenses from previous periods
+  let previousPeriodsExpenses = 0;
+  workSnapshot.forEach(doc => {
+    const data = doc.data();
+    const dateStr = data.date;
+    if (typeof dateStr === 'string' && dateStr < startStr) {
+      previousPeriodsExpenses += parseFloat(data.spent) || 0;
+    }
+  });
+  
+  // Calculate total payments received before current period
+  let totalPaymentsBeforePeriod = 0;
+  paymentSnapshot.forEach(doc => {
+    const p = doc.data();
+    let paymentDateStr;
+    
+    if (p.date?.toDate) {
+      paymentDateStr = p.date.toDate().toISOString().split('T')[0];
+    } else if (typeof p.date === 'string') {
+      paymentDateStr = p.date;
+    }
+    
+    if (paymentDateStr && paymentDateStr < startStr) {
+      totalPaymentsBeforePeriod += parseFloat(p.amount) || 0;
+    }
+  });
+  
+  // Cumulative balance = total salary earned + previous expenses - total payments received
+  cumulativeBalance = totalSalaryEarned + previousPeriodsExpenses - totalPaymentsBeforePeriod;
+  
+  // Current period earnings = monthly salary + expenses in current period
+  const currentPeriodEarnings = workerMonthlyAmount + currentPeriodExpenses;
+  
+  // Total earnings = cumulative balance + current period earnings
+  const totalEarnings = cumulativeBalance + currentPeriodEarnings;
+  
+  // Calculate payments received in current period
+  let totalReceivedInPeriod = 0;
+  const paymentsBody = document.getElementById('paymentDetailsBody');
+  paymentsBody.innerHTML = '';
+  
+  paymentSnapshot.forEach(doc => {
+    const p = doc.data();
+    let paymentDateStr;
+    
+    if (p.date?.toDate) {
+      paymentDateStr = p.date.toDate().toISOString().split('T')[0];
+    } else if (typeof p.date === 'string') {
+      paymentDateStr = p.date;
+    }
+    
+    if (paymentDateStr && paymentDateStr >= startStr && paymentDateStr < endStr) {
+      totalReceivedInPeriod += parseFloat(p.amount) || 0;
+      
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${paymentDateStr}</td><td>₹${(p.amount || 0).toFixed(2)}</td><td>${p.method || ''}</td><td>${p.note || ''}</td>`;
+      paymentsBody.appendChild(row);
+    }
+  });
+  
+  if (paymentsBody.innerHTML === '') {
+    paymentsBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No payments received this period</td></tr>';
+  }
+  
+  // Update display values
+  document.getElementById('previousBalanceDisplay').textContent = `₹${cumulativeBalance.toFixed(2)}`;
+  document.getElementById('currentEarningsDisplay').textContent = `₹${currentPeriodEarnings.toFixed(2)}`;
+  document.getElementById('totalEarningsDisplay').textContent = `₹${totalEarnings.toFixed(2)}`;
+  document.getElementById('totalReceivedDisplay').textContent = `₹${totalReceivedInPeriod.toFixed(2)}`;
 
+  const balance = totalEarnings - totalReceivedInPeriod;
+  const balanceEl = document.getElementById('balanceAmountDisplay');
+  balanceEl.textContent = `₹${Math.abs(balance).toFixed(2)}`;
+  document.getElementById('balanceStatus').textContent = balance > 0 ? 'Payment Due' : balance < 0 ? 'Advance Paid' : 'Fully Paid';
+  balanceEl.className = balance > 0 ? 'balance-negative' : balance < 0 ? 'balance-positive' : '';
+
+  new bootstrap.Modal(document.getElementById('paymentDetailsModal')).show();
+}
 function getSalaryPeriod() {
   const today = new Date();
   const year = today.getFullYear();
