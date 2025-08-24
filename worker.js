@@ -169,16 +169,67 @@ async function fetchMyWorks() {
   }
 }
 
-// ======= Updated payment details logic for monthly workers =======
+// ======= Fixed payment details logic for daily workers =======
 async function showPaymentDetailsDaily() {
   const workSnapshot = await db.collection('workRecords').where('uid', '==', uid).get();
   let totalEarnings = 0;
-  workSnapshot.forEach(doc => totalEarnings += parseFloat(doc.data().earning) || 0);
+  let totalSpent = 0;
+  
+  workSnapshot.forEach(doc => {
+    const data = doc.data();
+    totalEarnings += parseFloat(data.earning) || 0;
+    totalSpent += parseFloat(data.spent) || 0;
+  });
+  
+  // For daily workers, total compensation = earnings + expenses
+  const totalCompensation = totalEarnings + totalSpent;
+  
+  const paymentSnapshot = await db.collection('payments').where('workerId', '==', uid).orderBy('date', 'desc').get();
+  let totalReceived = 0;
+  const paymentsBody = document.getElementById('paymentDetailsBody');
+  paymentsBody.innerHTML = '';
+  
+  paymentSnapshot.forEach(doc => {
+    const p = doc.data();
+    totalReceived += parseFloat(p.amount) || 0;
 
-  await showPaymentDetailsCommon(totalEarnings);
+    let formattedDate = 'N/A';
+    if (p.date?.toDate) formattedDate = p.date.toDate().toISOString().split('T')[0];
+    else if (typeof p.date === 'string') formattedDate = p.date;
+
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${formattedDate}</td><td>₹${(p.amount || 0).toFixed(2)}</td><td>${p.method || ''}</td><td>${p.note || ''}</td>`;
+    paymentsBody.appendChild(row);
+  });
+
+  if (paymentSnapshot.empty) {
+    paymentsBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No payments received yet</td></tr>';
+  }
+
+  // Update the UI to show the breakdown
+  document.getElementById('dailyWorkerDetails').style.display = 'block';
+  document.getElementById('monthlyWorkerDetails').style.display = 'none';
+  
+  document.getElementById('totalEarningsDisplay').textContent = `₹${totalEarnings.toFixed(2)}`;
+  document.getElementById('totalSpentDisplay').textContent = `₹${totalSpent.toFixed(2)}`;
+  document.getElementById('totalCompensationDisplay').textContent = `₹${totalCompensation.toFixed(2)}`;
+  document.getElementById('totalReceivedDisplay').textContent = `₹${totalReceived.toFixed(2)}`;
+
+  const balance = totalCompensation - totalReceived;
+  const balanceEl = document.getElementById('balanceAmountDisplay');
+  balanceEl.textContent = `₹${Math.abs(balance).toFixed(2)}`;
+  document.getElementById('balanceStatus').textContent = balance > 0 ? 'Payment Due' : balance < 0 ? 'Advance Paid' : 'Fully Paid';
+  balanceEl.className = balance > 0 ? 'balance-negative' : balance < 0 ? 'balance-positive' : '';
+
+  new bootstrap.Modal(document.getElementById('paymentDetailsModal')).show();
 }
 
+// ======= Fixed payment details logic for monthly workers =======
 async function showPaymentDetailsMonthly() {
+  // Hide daily worker details and show monthly worker details
+  document.getElementById('dailyWorkerDetails').style.display = 'none';
+  document.getElementById('monthlyWorkerDetails').style.display = 'block';
+  
   const periodText = getSalaryPeriod();
   document.getElementById('salaryPeriodText').textContent = `Salary Period: ${periodText}`;
   document.getElementById('monthlySalaryText').textContent = `Monthly Salary: ₹${workerMonthlyAmount.toFixed(2)}`;
@@ -213,14 +264,12 @@ async function showPaymentDetailsMonthly() {
   });
 
   // Calculate cumulative balance from ALL previous periods
-  // This is based on fixed monthly salary minus all payments received
   let cumulativeBalance = 0;
   
   // Calculate total salary earned from all previous periods
   let totalSalaryEarned = 0;
   
   // Count how many full months of salary the worker has earned
-  // We need to determine when the worker started working
   let earliestWorkDate = new Date();
   workSnapshot.forEach(doc => {
     const data = doc.data();
@@ -311,10 +360,10 @@ async function showPaymentDetailsMonthly() {
     paymentsBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No payments received this period</td></tr>';
   }
   
-  // Update display values
+  // Update display values for monthly workers
   document.getElementById('previousBalanceDisplay').textContent = `₹${cumulativeBalance.toFixed(2)}`;
   document.getElementById('currentEarningsDisplay').textContent = `₹${currentPeriodEarnings.toFixed(2)}`;
-  document.getElementById('totalEarningsDisplay').textContent = `₹${totalEarnings.toFixed(2)}`;
+  document.getElementById('totalEarningsDisplayMonthly').textContent = `₹${totalEarnings.toFixed(2)}`;
   document.getElementById('totalReceivedDisplay').textContent = `₹${totalReceivedInPeriod.toFixed(2)}`;
 
   const balance = totalEarnings - totalReceivedInPeriod;
@@ -325,6 +374,7 @@ async function showPaymentDetailsMonthly() {
 
   new bootstrap.Modal(document.getElementById('paymentDetailsModal')).show();
 }
+
 function getSalaryPeriod() {
   const today = new Date();
   const year = today.getFullYear();
@@ -341,40 +391,6 @@ function getSalaryPeriod() {
 
   const options = { day: 'numeric', month: 'short', year: 'numeric' };
   return `${fromDate.toLocaleDateString('en-IN', options)} to ${toDate.toLocaleDateString('en-IN', options)}`;
-}
-
-async function showPaymentDetailsCommon(totalEarnings) {
-  const paymentSnapshot = await db.collection('payments').where('workerId', '==', uid).orderBy('date', 'desc').get();
-  let totalReceived = 0;
-  const paymentsBody = document.getElementById('paymentDetailsBody');
-  paymentsBody.innerHTML = '';
-  paymentSnapshot.forEach(doc => {
-    const p = doc.data();
-    totalReceived += parseFloat(p.amount) || 0;
-
-    let formattedDate = 'N/A';
-    if (p.date?.toDate) formattedDate = p.date.toDate().toISOString().split('T')[0];
-    else if (typeof p.date === 'string') formattedDate = p.date;
-
-    const row = document.createElement('tr');
-    row.innerHTML = `<td>${formattedDate}</td><td>₹${(p.amount || 0).toFixed(2)}</td><td>${p.method || ''}</td><td>${p.note || ''}</td>`;
-    paymentsBody.appendChild(row);
-  });
-
-  if (paymentSnapshot.empty) {
-    paymentsBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No payments received yet</td></tr>';
-  }
-
-  document.getElementById('totalEarningsDisplay').textContent = `₹${totalEarnings.toFixed(2)}`;
-  document.getElementById('totalReceivedDisplay').textContent = `₹${totalReceived.toFixed(2)}`;
-
-  const balance = totalEarnings - totalReceived;
-  const balanceEl = document.getElementById('balanceAmountDisplay');
-  balanceEl.textContent = `₹${Math.abs(balance).toFixed(2)}`;
-  document.getElementById('balanceStatus').textContent = balance > 0 ? 'Payment Due' : balance < 0 ? 'Advance Paid' : 'Fully Paid';
-  balanceEl.className = balance > 0 ? 'balance-negative' : balance < 0 ? 'balance-positive' : '';
-
-  new bootstrap.Modal(document.getElementById('paymentDetailsModal')).show();
 }
 
 // Main showPaymentDetails decides which to use
