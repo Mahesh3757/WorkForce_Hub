@@ -5,6 +5,13 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
+    .balance-negative {
+  color: #dc3545; /* Red for debt */
+}
+
+.balance-positive {
+  color: #198754; /* Green for credit */
+}
     .balance-positive {
       color: green;
       font-weight: bold;
@@ -140,64 +147,79 @@
   </div>
 
   <!-- Payment Details Modal -->
-  <div class="modal fade" id="paymentDetailsModal" tabindex="-1" aria-hidden="true">
+  <div class="modal fade" id="paymentDetailsModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">Payment History & Balance</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <h5 class="modal-title">Payment Details</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <div class="row mb-4">
-            <div class="col-md-6">
-              <div class="card bg-light">
-                <div class="card-body">
-                  <h6 class="card-title">Total Earnings</h6>
-                  <h4 id="totalEarningsDisplay" class="text-success">₹0</h4>
-                  <p id="salaryPeriodText" class="fw-bold"></p>
-                  <p id="monthlySalaryText" class="fw-bold"></p>
-
-                </div>
-              </div>
+          <!-- Daily Worker Details -->
+          <div id="dailyWorkerDetails">
+            <div class="d-flex justify-content-between mb-2">
+              <span>Total Earnings:</span>
+              <strong id="totalEarningsDisplay">₹0.00</strong>
             </div>
-            <div class="col-md-6">
-              <div class="card bg-light">
-                <div class="card-body">
-                  <h6 class="card-title">Total Received</h6>
-                  <h4 id="totalReceivedDisplay" class="text-primary">₹0</h4>
-                </div>
-              </div>
+            <div class="d-flex justify-content-between mb-2">
+              <span>Total Spent (Reimbursable):</span>
+              <strong id="totalSpentDisplay">₹0.00</strong>
             </div>
-          </div>
-          <div class="card mb-4">
-            <div class="card-body text-center">
-              <h6>Current Balance</h6>
-              <h2 id="balanceAmountDisplay" class="balance-positive">₹0</h2>
-              <p id="balanceStatus" class="text-muted"></p>
-            </div>
-          </div>
-          <div class="row mb-3">
-            <div class="col-md-6">
-              <strong>Previous Balance:</strong> <span id="previousBalanceDisplay">₹0.00</span>
-            </div>
-            <div class="col-md-6">
-              <strong>Current Period Earnings:</strong> <span id="currentEarningsDisplay">₹0.00</span>
+            <div class="d-flex justify-content-between mb-3 border-top pt-2">
+              <span>Total Compensation:</span>
+              <strong id="totalCompensationDisplay">₹0.00</strong>
             </div>
           </div>
           
-          <h5 class="mb-3">Payment History</h5>
+          <!-- Monthly Worker Details -->
+          <div id="monthlyWorkerDetails" style="display: none;">
+            <div class="mb-2">
+              <span id="salaryPeriodText"></span>
+            </div>
+            <div class="mb-2">
+              <span id="monthlySalaryText"></span>
+            </div>
+            <div class="d-flex justify-content-between mb-2">
+              <span>Previous Balance:</span>
+              <strong id="previousBalanceDisplay">₹0.00</strong>
+            </div>
+            <div class="d-flex justify-content-between mb-2">
+              <span>Current Period Earnings:</span>
+              <strong id="currentEarningsDisplay">₹0.00</strong>
+            </div>
+            <div class="d-flex justify-content-between mb-3 border-top pt-2">
+              <span>Total Earnings:</span>
+              <strong id="totalEarningsDisplayMonthly">₹0.00</strong>
+            </div>
+          </div>
+          
+          <!-- Common Payment Details -->
+          <div class="d-flex justify-content-between mb-2">
+            <span>Total Received:</span>
+            <strong id="totalReceivedDisplay">₹0.00</strong>
+          </div>
+          <div class="d-flex justify-content-between mb-3">
+            <span>Balance:</span>
+            <strong id="balanceAmountDisplay" class="balance-negative">₹0.00</strong>
+          </div>
+          <div class="mb-3">
+            <span>Status: </span>
+            <span id="balanceStatus" class="badge bg-warning">Pending</span>
+          </div>
+          
+          <h6>Payment History</h6>
           <div class="table-responsive">
-            <table class="table table-striped">
+            <table class="table table-sm">
               <thead>
                 <tr>
                   <th>Date</th>
                   <th>Amount</th>
                   <th>Method</th>
-                  <th>Notes</th>
+                  <th>Note</th>
                 </tr>
               </thead>
               <tbody id="paymentDetailsBody">
-                <!-- Payment details will be loaded here -->
+                <!-- Payment records will be inserted here -->
               </tbody>
             </table>
           </div>
@@ -208,7 +230,6 @@
       </div>
     </div>
   </div>
-
   <!-- Edit Modal -->
   <div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
