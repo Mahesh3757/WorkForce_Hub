@@ -227,9 +227,24 @@
   <script src="admin.js"></script>
   <script>
     function switchTab(tab) {
+      // Hide all views
+      document.getElementById('workersView').style.display = 'none';
+      document.getElementById('recordsView').style.display = 'none';
+      document.getElementById('analyticsView').style.display = 'none';
+      document.getElementById('paymentsView').style.display = 'none';
+      
+      // Show selected
+      document.getElementById(tab + 'View').style.display = 'block';
+      
+      // Update bottom nav
       document.querySelectorAll('.bottom-nav a').forEach(a => a.classList.remove('active'));
       document.getElementById(tab + 'TabMobile')?.classList.add('active');
-      document.getElementById(tab + 'Tab')?.click();
+      
+      // Load data
+      if (tab === 'workers') fetchAllWorkers();
+      else if (tab === 'records') fetchAllRecords();
+      else if (tab === 'payments') fetchAllPayments();
+      else if (tab === 'analytics') updateAnalytics();
     }
   </script>
 </body>
