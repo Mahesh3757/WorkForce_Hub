@@ -10,186 +10,110 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
     :root { --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom); }
-    body { padding-top: var(--safe-top); padding-bottom: var(--safe-bottom); -webkit-tap-highlight-color: transparent; }
+    body { padding-top: var(--safe-top); padding-bottom: calc(70px + var(--safe-bottom)); background: #f8f9fa; }
     .btn { min-height: 44px; touch-action: manipulation; }
+    .btn-sm { min-height: 36px; }
     .form-control, .form-select { font-size: 16px; min-height: 44px; }
-    .modal-dialog { margin: 10px auto; max-width: 95%; }
+    .modal-dialog { margin: 8px auto; max-width: 96%; }
     .modal-body { max-height: 70vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-    .table-responsive { -webkit-overflow-scrolling: touch; }
+    .top-header { background: #343a40; color: white; padding: 12px 16px; position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; }
+    .top-header h5 { margin: 0; font-size: 18px; }
+    .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; display: flex; justify-content: space-around; padding: 8px 0 calc(8px + var(--safe-bottom)); box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 100; }
+    .bottom-nav a { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: #6c757d; text-decoration: none; padding: 4px 8px; }
+    .bottom-nav a.active { color: #0d6efd; }
+    .bottom-nav a i { font-size: 18px; margin-bottom: 2px; }
+    .worker-card { background: white; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+    @media (min-width: 992px) { body { padding-bottom: var(--safe-bottom); } .bottom-nav { display: none; } .top-header { display: none; } }
   </style>
 </head>
-<body class="bg-light">
-<div class="container py-3">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="mb-0"><i class="fas fa-wallet me-2"></i>Salary Setup</h4>
-    <a href="admin.html" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+<body>
+  <div class="top-header">
+    <a href="admin.html" class="text-white text-decoration-none"><i class="fas fa-arrow-left me-2"></i>Salary</a>
+    <button onclick="logout()" class="btn btn-sm btn-outline-light">Logout</button>
   </div>
-  <div class="table-responsive">
-    <table class="table table-sm table-striped">
-      <thead class="table-dark">
-        <tr>
-          <th>Worker</th>
-          <th>Type</th>
-          <th>Daily</th>
-          <th>Monthly</th>
-          <th>Start Date</th>
-          <th>Paid By</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="salaryTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<div class="modal fade" id="editSalaryModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Update Salary</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="editWorkerId">
-        <div class="mb-3">
-          <label class="form-label">Salary Type</label>
-          <select id="editSalaryType" class="form-select">
-            <option value="daily">Daily Only</option>
-            <option value="monthly">Monthly Only</option>
-            <option value="hybrid">Daily + Monthly Fixed</option>
-          </select>
+  <div class="container py-3"><div id="salaryList"></div></div>
+  <nav class="bottom-nav">
+    <a href="admin.html"><i class="fas fa-users"></i>Workers</a>
+    <a href="admin.html#records"><i class="fas fa-clipboard-list"></i>Records</a>
+    <a href="admin.html#payments"><i class="fas fa-money-bill-wave"></i>Payments</a>
+    <a href="salary.html" class="active"><i class="fas fa-wallet"></i>Salary</a>
+    <a href="event-managers.html"><i class="fas fa-user-tie"></i>Events</a>
+  </nav>
+  <div class="modal fade" id="editSalaryModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Update Salary</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <input type="hidden" id="editWorkerId">
+          <div class="mb-2"><label class="form-label">Type</label>
+            <select id="editSalaryType" class="form-select"><option value="daily">Daily Only</option><option value="monthly">Monthly Only</option><option value="hybrid">Daily + Monthly</option></select>
+          </div>
+          <div class="mb-2" id="dailyAmountGroup"><label class="form-label">Daily Rate (₹)</label><input type="number" class="form-control" id="editDailyAmount" min="0"></div>
+          <div class="mb-2" id="monthlyAmountGroup"><label class="form-label">Monthly Fixed (₹)</label><input type="number" class="form-control" id="editMonthlyAmount" min="0"></div>
+          <div class="mb-2" id="periodTypeGroup"><label class="form-label">Start Date</label><input type="date" id="editPeriodStartDate" class="form-control"></div>
+          <div class="mb-2" id="paidByGroup"><label class="form-label">Paid By</label>
+            <select id="editPaidBy" class="form-select"><option value="Swapnil">Swapnil</option><option value="Shubham">Shubham</option></select>
+          </div>
         </div>
-        <div class="mb-3" id="dailyAmountGroup">
-          <label class="form-label">Daily Rate (₹)</label>
-          <input type="number" class="form-control" id="editDailyAmount" min="0" inputmode="decimal">
-        </div>
-        <div class="mb-3" id="monthlyAmountGroup">
-          <label class="form-label">Monthly Fixed (₹)</label>
-          <input type="number" class="form-control" id="editMonthlyAmount" min="0" inputmode="decimal">
-        </div>
-        <div class="mb-3" id="periodTypeGroup">
-          <label class="form-label">Salary Start Date</label>
-          <input type="date" id="editPeriodStartDate" class="form-control">
-          <small class="text-muted">Salary will be calculated from this date onwards. Previous records unchanged.</small>
-        </div>
-        <div class="mb-3" id="paidByGroup">
-          <label class="form-label">Monthly Paid By</label>
-          <select id="editPaidBy" class="form-select">
-            <option value="Swapnil">Swapnil</option>
-            <option value="Shubham">Shubham</option>
-          </select>
-          <small class="text-muted">Who pays the monthly salary</small>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" id="saveSalaryBtn">Save</button>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="saveSalaryBtn">Save</button></div>
       </div>
     </div>
   </div>
-</div>
-
-<script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script src="firebase-config.js"></script>
-<script>
-const db = firebase.firestore();
-
-function toggleSalaryFields() {
-  const type = document.getElementById('editSalaryType').value;
-  const showMonthly = (type === 'monthly' || type === 'hybrid');
-  document.getElementById('dailyAmountGroup').style.display = (type === 'daily' || type === 'hybrid') ? 'block' : 'none';
-  document.getElementById('monthlyAmountGroup').style.display = showMonthly ? 'block' : 'none';
-  document.getElementById('periodTypeGroup').style.display = showMonthly ? 'block' : 'none';
-  document.getElementById('paidByGroup').style.display = showMonthly ? 'block' : 'none';
-}
-
-async function loadWorkers() {
-  const tbody = document.getElementById('salaryTableBody');
-  tbody.innerHTML = '<tr><td colspan="6" class="text-center">Loading...</td></tr>';
-  
-  // Fetch from workers collection (same as admin & login)
-  const workersSnap = await db.collection('workers').get();
-  const workers = {};
-  workersSnap.forEach(d => {
-    const data = d.data();
-    workers[d.id] = data.name || d.id;
-  });
-  
-  tbody.innerHTML = '';
-  if (Object.keys(workers).length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No workers registered</td></tr>';
-    return;
-  }
-  for (const uid in workers) {
-    let type = 'daily', daily = 0, monthly = 0, startDate = '', paidBy = 'Swapnil';
-    try {
-      const s = await db.collection('salaries').doc(uid).get();
-      if (s.exists) {
-        const d = s.data();
-        type = d.salaryType || 'daily';
-        daily = parseFloat(d.dailyAmount) || (type === 'daily' ? (parseFloat(d.monthlyAmount) || 0) : 0);
-        monthly = (type === 'monthly' || type === 'hybrid') ? (parseFloat(d.monthlyAmount) || 0) : 0;
-        startDate = d.periodEffectiveFrom || '';
-        paidBy = d.salaryPayer || 'Swapnil';
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="firebase-config.js"></script>
+  <script>
+    const db = firebase.firestore();
+    function logout() { localStorage.clear(); window.location.href = "admin.html"; }
+    function toggleSalaryFields() {
+      const type = document.getElementById('editSalaryType').value;
+      const showMonthly = (type === 'monthly' || type === 'hybrid');
+      document.getElementById('dailyAmountGroup').style.display = (type === 'daily' || type === 'hybrid') ? 'block' : 'none';
+      document.getElementById('monthlyAmountGroup').style.display = showMonthly ? 'block' : 'none';
+      document.getElementById('periodTypeGroup').style.display = showMonthly ? 'block' : 'none';
+      document.getElementById('paidByGroup').style.display = showMonthly ? 'block' : 'none';
+    }
+    async function loadWorkers() {
+      const list = document.getElementById('salaryList');
+      list.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary"></div></div>';
+      const workersSnap = await db.collection('workers').get();
+      const workers = {};
+      workersSnap.forEach(d => { workers[d.id] = d.data().name || d.id; });
+      list.innerHTML = '';
+      if (Object.keys(workers).length === 0) { list.innerHTML = '<div class="text-center text-muted py-5">No workers</div>'; return; }
+      for (const uid in workers) {
+        let type = 'daily', daily = 0, monthly = 0, startDate = '', paidBy = 'Swapnil';
+        try {
+          const s = await db.collection('salaries').doc(uid).get();
+          if (s.exists) { const d = s.data(); type = d.salaryType || 'daily'; daily = parseFloat(d.dailyAmount) || 0; monthly = parseFloat(d.monthlyAmount) || 0; startDate = d.periodEffectiveFrom || ''; paidBy = d.salaryPayer || 'Swapnil'; }
+        } catch (e) {}
+        const badge = type === 'hybrid' ? 'warning' : type === 'monthly' ? 'success' : 'info';
+        list.innerHTML += `<div class="worker-card"><div class="d-flex justify-content-between align-items-start mb-2"><div><h6 class="mb-1">${workers[uid]}</h6><span class="badge bg-${badge}">${type}</span></div><button class="btn btn-sm btn-primary edit-btn" data-uid="${uid}" data-type="${type}" data-daily="${daily}" data-monthly="${monthly}" data-start="${startDate}" data-payer="${paidBy}">Edit</button></div><div class="row text-center small"><div class="col-4"><div class="text-muted">Daily</div><strong>₹${daily}</strong></div><div class="col-4"><div class="text-muted">Monthly</div><strong>₹${monthly}</strong></div><div class="col-4"><div class="text-muted">Paid By</div><strong>${paidBy}</strong></div></div>${startDate ? `<div class="text-muted small mt-2">Start: ${startDate}</div>` : ''}</div>`;
       }
-    } catch (e) {}
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${workers[uid]}</td>
-      <td><span class="badge bg-secondary">${type}</span></td>
-      <td>₹${daily}</td>
-      <td>₹${monthly}</td>
-      <td>${startDate || '—'}</td>
-      <td>${paidBy}</td>
-      <td><button class="btn btn-sm btn-primary edit-btn" data-uid="${uid}" data-type="${type}" data-daily="${daily}" data-monthly="${monthly}" data-start="${startDate}" data-payer="${paidBy}">Edit</button></td>`;
-    tbody.appendChild(tr);
-  }
-}
-
-function openEditModal(uid, type, daily, monthly, startDate, paidBy) {
-  document.getElementById('editWorkerId').value = uid;
-  document.getElementById('editSalaryType').value = type || 'daily';
-  document.getElementById('editDailyAmount').value = daily || 0;
-  document.getElementById('editMonthlyAmount').value = monthly || 0;
-  document.getElementById('editPeriodStartDate').value = startDate || new Date().toISOString().split('T')[0];
-  document.getElementById('editPaidBy').value = paidBy || 'Swapnil';
-  toggleSalaryFields();
-  new bootstrap.Modal(document.getElementById('editSalaryModal')).show();
-}
-
-document.getElementById('editSalaryType').addEventListener('change', toggleSalaryFields);
-
-document.getElementById('saveSalaryBtn').addEventListener('click', async () => {
-  const workerId = document.getElementById('editWorkerId').value;
-  const salaryType = document.getElementById('editSalaryType').value;
-  const dailyAmount = parseFloat(document.getElementById('editDailyAmount').value) || 0;
-  const monthlyAmount = parseFloat(document.getElementById('editMonthlyAmount').value) || 0;
-  const startDate = document.getElementById('editPeriodStartDate').value;
-  
-  const data = { 
-    salaryType, 
-    dailyAmount, 
-    monthlyAmount,
-    periodEffectiveFrom: (salaryType === 'monthly' || salaryType === 'hybrid') && startDate ? startDate : null,
-    salaryPayer: (salaryType === 'monthly' || salaryType === 'hybrid') ? document.getElementById('editPaidBy').value : null
-  };
-  try {
-    await db.collection('salaries').doc(workerId).set(data);
-    bootstrap.Modal.getInstance(document.getElementById('editSalaryModal')).hide();
-    loadWorkers();
-  } catch (e) {
-    alert('Failed: ' + e.message);
-  }
-});
-
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('.edit-btn');
-  if (btn) openEditModal(btn.dataset.uid, btn.dataset.type, btn.dataset.daily, btn.dataset.monthly, btn.dataset.start, btn.dataset.payer);
-});
-
-document.addEventListener('DOMContentLoaded', loadWorkers);
-</script>
+    }
+    function openEditModal(uid, type, daily, monthly, startDate, paidBy) {
+      document.getElementById('editWorkerId').value = uid;
+      document.getElementById('editSalaryType').value = type || 'daily';
+      document.getElementById('editDailyAmount').value = daily || 0;
+      document.getElementById('editMonthlyAmount').value = monthly || 0;
+      document.getElementById('editPeriodStartDate').value = startDate || new Date().toISOString().split('T')[0];
+      document.getElementById('editPaidBy').value = paidBy || 'Swapnil';
+      toggleSalaryFields();
+      new bootstrap.Modal(document.getElementById('editSalaryModal')).show();
+    }
+    document.getElementById('editSalaryType').addEventListener('change', toggleSalaryFields);
+    document.getElementById('saveSalaryBtn').addEventListener('click', async () => {
+      const workerId = document.getElementById('editWorkerId').value;
+      const salaryType = document.getElementById('editSalaryType').value;
+      const dailyAmount = parseFloat(document.getElementById('editDailyAmount').value) || 0;
+      const monthlyAmount = parseFloat(document.getElementById('editMonthlyAmount').value) || 0;
+      const startDate = document.getElementById('editPeriodStartDate').value;
+      const data = { salaryType, dailyAmount, monthlyAmount, periodEffectiveFrom: (salaryType === 'monthly' || salaryType === 'hybrid') && startDate ? startDate : null, salaryPayer: (salaryType === 'monthly' || salaryType === 'hybrid') ? document.getElementById('editPaidBy').value : null };
+      try { await db.collection('salaries').doc(workerId).set(data); bootstrap.Modal.getInstance(document.getElementById('editSalaryModal')).hide(); loadWorkers(); } catch (e) { alert('Failed: ' + e.message); }
+    });
+    document.addEventListener('click', (e) => { const btn = e.target.closest('.edit-btn'); if (btn) openEditModal(btn.dataset.uid, btn.dataset.type, btn.dataset.daily, btn.dataset.monthly, btn.dataset.start, btn.dataset.payer); });
+    document.addEventListener('DOMContentLoaded', loadWorkers);
+  </script>
 </body>
 </html>
