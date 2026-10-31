@@ -11,11 +11,7 @@
   <style>
     :root { --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom); }
     * { -webkit-tap-highlight-color: transparent; }
-    body { 
-      padding-top: var(--safe-top); 
-      padding-bottom: calc(70px + var(--safe-bottom));
-      background: #f8f9fa;
-    }
+    body { padding-top: var(--safe-top); padding-bottom: calc(70px + var(--safe-bottom)); background: #f8f9fa; }
     .btn { min-height: 44px; touch-action: manipulation; }
     .btn-sm { min-height: 36px; }
     .form-control, .form-select { font-size: 16px; min-height: 44px; }
@@ -24,33 +20,15 @@
     .table-responsive { -webkit-overflow-scrolling: touch; }
     .modal-backdrop { z-index: 1040 !important; }
     .modal { z-index: 1050 !important; }
-    
-    .top-header {
-      background: #343a40; color: white;
-      padding: 12px 16px;
-      position: sticky; top: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: space-between;
-    }
+    .top-header { background: #343a40; color: white; padding: 12px 16px; position: sticky; top: 0; z-index: 100; display: flex; align-items: center; justify-content: space-between; }
     .top-header h5 { margin: 0; font-size: 18px; }
-    
-    .bottom-nav {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      background: white; display: flex; justify-content: space-around;
-      padding: 8px 0 calc(8px + var(--safe-bottom));
-      box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 100;
-    }
-    .bottom-nav a {
-      display: flex; flex-direction: column; align-items: center;
-      font-size: 11px; color: #6c757d; text-decoration: none; padding: 4px 8px;
-    }
+    .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; display: flex; justify-content: space-around; padding: 8px 0 calc(8px + var(--safe-bottom)); box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 100; }
+    .bottom-nav a { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: #6c757d; text-decoration: none; padding: 4px 8px; }
     .bottom-nav a.active { color: #0d6efd; }
     .bottom-nav a i { font-size: 18px; margin-bottom: 2px; }
-    
     .main-content { padding: 12px; }
     .filter-section { background: white; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
-    
     .sidebar { display: none; }
-    
     @media (min-width: 992px) {
       body { padding-bottom: var(--safe-bottom); }
       .bottom-nav { display: none; }
@@ -97,6 +75,15 @@
               <div class="col-6"><input type="date" id="filterFromDate" class="form-control form-control-sm"></div>
               <div class="col-6"><input type="date" id="filterToDate" class="form-control form-control-sm"></div>
               <div class="col-6">
+                <select id="filterMonth" class="form-select form-select-sm">
+                  <option value="">All Months</option>
+                  <option value="01">Jan</option><option value="02">Feb</option><option value="03">Mar</option>
+                  <option value="04">Apr</option><option value="05">May</option><option value="06">Jun</option>
+                  <option value="07">Jul</option><option value="08">Aug</option><option value="09">Sep</option>
+                  <option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+                </select>
+              </div>
+              <div class="col-6">
                 <select id="filterOwner" class="form-select form-select-sm">
                   <option value="">All Owners</option>
                   <option value="Swapnil">Swapnil</option>
@@ -114,12 +101,19 @@
             <table class="table table-sm">
               <thead class="table-dark"><tr><th>Date</th><th>Worker</th><th>Owner</th><th>Work</th><th>Spent</th><th>Earning</th><th></th></tr></thead>
               <tbody id="recordsTableBody"></tbody>
+              <tfoot><tr><td colspan="4">Total</td><td id="totalAllSpent">₹0</td><td id="totalAllEarning">₹0</td><td></td></tr></tfoot>
             </table>
           </div>
         </div>
 
         <div id="analyticsView" style="display:none;">
           <h5 class="mb-3"><i class="fas fa-chart-pie me-2"></i>Analytics</h5>
+          <div class="row mb-3">
+            <div class="col-6"><div class="card"><div class="card-body text-center"><small>Workers</small><h4 id="totalWorkers">0</h4></div></div></div>
+            <div class="col-6"><div class="card"><div class="card-body text-center"><small>Spent</small><h4 id="totalAnalyticsSpent">₹0</h4></div></div></div>
+            <div class="col-6"><div class="card"><div class="card-body text-center"><small>Earned</small><h4 id="totalAnalyticsEarning">₹0</h4></div></div></div>
+            <div class="col-6"><div class="card"><div class="card-body text-center"><small>Balance</small><h4 id="netBalance">₹0</h4></div></div></div>
+          </div>
           <div class="row">
             <div class="col-12 mb-3"><div class="card"><div class="card-body"><canvas id="spendingChart"></canvas></div></div></div>
             <div class="col-12 mb-3"><div class="card"><div class="card-body"><canvas id="workerChart"></canvas></div></div></div>
@@ -132,6 +126,7 @@
             <table class="table table-sm">
               <thead class="table-dark"><tr><th>Date</th><th>Worker</th><th>Amount</th><th>Method</th><th></th></tr></thead>
               <tbody id="paymentsTableBody"></tbody>
+              <tfoot><tr><td colspan="2">Total</td><td id="totalPaymentsAmount">₹0</td><td colspan="2"></td></tr></tfoot>
             </table>
           </div>
         </div>
@@ -194,6 +189,30 @@
     </div>
   </div>
 
+  <!-- Edit Record Modal -->
+  <div class="modal fade" id="editRecordModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Edit Work Record</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="editRecordId">
+          <div class="mb-2"><label class="form-label">Worker</label><select id="editRecordWorker" class="form-select"></select></div>
+          <div class="mb-2"><label class="form-label">Date</label><input type="date" id="editRecordDate" class="form-control"></div>
+          <div class="mb-2"><label class="form-label">Work Description</label><textarea id="editRecordWorkDetails" class="form-control" rows="2"></textarea></div>
+          <div class="mb-2"><label class="form-label">Spent Amount</label><input type="number" id="editRecordSpentAmount" class="form-control" min="0"></div>
+          <div class="mb-2"><label class="form-label">Spent Details</label><textarea id="editRecordSpentDetails" class="form-control" rows="2"></textarea></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button class="btn btn-primary" id="saveRecordEditBtn">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Add Payment Modal -->
   <div class="modal fade" id="addPaymentModal" tabindex="-1">
     <div class="modal-dialog">
@@ -227,20 +246,13 @@
   <script src="admin.js"></script>
   <script>
     function switchTab(tab) {
-      // Hide all views
       document.getElementById('workersView').style.display = 'none';
       document.getElementById('recordsView').style.display = 'none';
       document.getElementById('analyticsView').style.display = 'none';
       document.getElementById('paymentsView').style.display = 'none';
-      
-      // Show selected
       document.getElementById(tab + 'View').style.display = 'block';
-      
-      // Update bottom nav
       document.querySelectorAll('.bottom-nav a').forEach(a => a.classList.remove('active'));
       document.getElementById(tab + 'TabMobile')?.classList.add('active');
-      
-      // Load data
       if (tab === 'workers') fetchAllWorkers();
       else if (tab === 'records') fetchAllRecords();
       else if (tab === 'payments') fetchAllPayments();

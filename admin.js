@@ -741,8 +741,10 @@ function renderRecords(records) {
     recordsTableBody.appendChild(row);
   });
 
-  document.getElementById('totalAllSpent').textContent = `₹${totalSpent.toFixed(2)}`;
-  document.getElementById('totalAllEarning').textContent = `₹${totalEarning.toFixed(2)}`;
+  const totalSpentEl = document.getElementById('totalAllSpent');
+  const totalEarningEl = document.getElementById('totalAllEarning');
+  if (totalSpentEl) totalSpentEl.textContent = `₹${totalSpent.toFixed(2)}`;
+  if (totalEarningEl) totalEarningEl.textContent = `₹${totalEarning.toFixed(2)}`;
 }
 
 // Update worker filter dropdown
@@ -850,7 +852,10 @@ async function openEditRecordModal(recordId) {
 }
 
 // Save edited record
-document.getElementById('saveRecordEditBtn').addEventListener('click', async () => {
+document.addEventListener('DOMContentLoaded', () => {
+  const saveBtn = document.getElementById('saveRecordEditBtn');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
   const recordId = document.getElementById('editRecordId').value;
   const workerId = document.getElementById('editRecordWorker').value;
   const date = document.getElementById('editRecordDate').value;
@@ -893,6 +898,8 @@ document.getElementById('saveRecordEditBtn').addEventListener('click', async () 
   } catch (error) {
     console.error("Error updating record:", error);
     alert("Failed to update record: " + error.message);
+  }
+    });
   }
 });
 
@@ -1059,7 +1066,8 @@ function renderPayments(payments) {
     paymentsTableBody.appendChild(row);
   });
   
-  document.getElementById('totalPaymentsAmount').textContent = `₹${totalAmount.toFixed(2)}`;
+  const totalPaymentsEl = document.getElementById('totalPaymentsAmount');
+  if (totalPaymentsEl) totalPaymentsEl.textContent = `₹${totalAmount.toFixed(2)}`;
 }
 
 // Open add payment modal
