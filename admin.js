@@ -7,6 +7,23 @@ let allRecords = [];
 let allPayments = [];
 let allSalaries = {}; // To store salary information
 
+// Clean leftover modal backdrops (fixes overlay issue)
+function cleanupModals() {
+  document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+  document.body.classList.remove('modal-open');
+  document.body.style.removeProperty('overflow');
+  document.body.style.removeProperty('padding-right');
+}
+
+// Safe modal show helper
+function showModal(modalId) {
+  cleanupModals();
+  const el = document.getElementById(modalId);
+  if (!el) return;
+  const modal = bootstrap.Modal.getOrCreateInstance(el);
+  modal.show();
+}
+
 // Logout function
 function logout() {
   localStorage.clear();
@@ -122,21 +139,23 @@ async function fetchAllWorkers() {
         totalPayments += parseFloat(paymentDoc.data().amount) || 0;
       });
 
-      // Calculate balance using 15th-to-15th payroll period logic for monthly workers
+      // Calculate balance using period logic for monthly / hybrid workers
+      // Period type (1 or 15) and effective date from salary settings
       let balanceDue = 0;
       
-      if (salaryInfo.salaryType === 'monthly') {
-        // Get current date
+      if (salaryInfo.salaryType === 'monthly' || salaryInfo.salaryType === 'hybrid') {
         const today = new Date();
+        const periodDay = parseInt(salaryInfo.periodType) || 15;
+        const effectiveFrom = salaryInfo.periodEffectiveFrom || null;
         
-        // Define current period: 15th to next 15th
+        // Define current period based on periodDay (1 or 15)
         let startDate, endDate;
-        if (today.getDate() >= 15) {
-          startDate = new Date(today.getFullYear(), today.getMonth(), 15);
-          endDate = new Date(today.getFullYear(), today.getMonth() + 1, 15);
+        if (today.getDate() >= periodDay) {
+          startDate = new Date(today.getFullYear(), today.getMonth(), periodDay);
+          endDate = new Date(today.getFullYear(), today.getMonth() + 1, periodDay);
         } else {
-          startDate = new Date(today.getFullYear(), today.getMonth() - 1, 15);
-          endDate = new Date(today.getFullYear(), today.getMonth(), 15);
+          startDate = new Date(today.getFullYear(), today.getMonth() - 1, periodDay);
+          endDate = new Date(today.getFullYear(), today.getMonth(), periodDay);
         }
         const startStr = startDate.toISOString().split('T')[0];
 
@@ -150,41 +169,40 @@ async function fetchAllWorkers() {
           }
         });
 
-        // Calculate cumulative balance from ALL previous periods
+        // Calculate cumulative balance from previous periods
+        // Count salary periods from earliest work date (record-based)
         let cumulativeBalance = 0;
         
-        // Calculate total salary earned from all previous periods
-        let totalSalaryEarned = 0;
-        
-        // Count how many full months of salary the worker has earned
-        // We need to determine when the worker started working
         let earliestWorkDate = new Date();
         recordsSnapshot.forEach(recordDoc => {
           const recordData = recordDoc.data();
           const dateStr = recordData.date;
           if (typeof dateStr === 'string') {
             const workDate = new Date(dateStr);
-            if (workDate < earliestWorkDate) {
-              earliestWorkDate = workDate;
-            }
+            if (workDate < earliestWorkDate) earliestWorkDate = workDate;
           }
         });
-        
-        // Calculate number of full monthly periods from start date to current period start
+
         let periodCount = 0;
-        let periodStart = new Date(earliestWorkDate.getFullYear(), earliestWorkDate.getMonth(), 15);
-        if (earliestWorkDate.getDate() > 15) {
-          periodStart = new Date(earliestWorkDate.getFullYear(), earliestWorkDate.getMonth() + 1, 15);
+        // Start counting from effectiveFrom date (if set), otherwise from earliest work
+        let countFromDate = earliestWorkDate;
+        if (effectiveFrom) {
+          const effDate = new Date(effectiveFrom);
+          if (effDate > earliestWorkDate) countFromDate = effDate;
         }
         
+        let periodStart = new Date(countFromDate.getFullYear(), countFromDate.getMonth(), periodDay);
+        if (countFromDate.getDate() > periodDay) {
+          periodStart = new Date(countFromDate.getFullYear(), countFromDate.getMonth() + 1, periodDay);
+        }
         while (periodStart < startDate) {
           periodCount++;
-          periodStart = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, 15);
+          periodStart = new Date(periodStart.getFullYear(), periodStart.getMonth() + 1, periodDay);
         }
-        
-        totalSalaryEarned = periodCount * salaryInfo.monthlyAmount;
-        
-        // Calculate total expenses from previous periods
+
+        const totalSalaryEarned = periodCount * (salaryInfo.monthlyAmount || 0);
+
+        // Previous periods expenses
         let previousPeriodsExpenses = 0;
         recordsSnapshot.forEach(recordDoc => {
           const recordData = recordDoc.data();
@@ -194,28 +212,29 @@ async function fetchAllWorkers() {
           }
         });
         
-        // Calculate total payments received before current period
+        // Payments before current period
         let totalPaymentsBeforePeriod = 0;
         paymentsSnapshot.forEach(paymentDoc => {
           const p = paymentDoc.data();
           let paymentDateStr;
-          
           if (p.date?.toDate) {
             paymentDateStr = p.date.toDate().toISOString().split('T')[0];
           } else if (typeof p.date === 'string') {
             paymentDateStr = p.date;
           }
-          
           if (paymentDateStr && paymentDateStr < startStr) {
             totalPaymentsBeforePeriod += parseFloat(p.amount) || 0;
           }
         });
         
-        // Cumulative balance = total salary earned + previous expenses - total payments received
         cumulativeBalance = totalSalaryEarned + previousPeriodsExpenses - totalPaymentsBeforePeriod;
         
-        // Current period earnings = monthly salary + expenses in current period
-        const currentPeriodEarnings = salaryInfo.monthlyAmount + currentPeriodExpenses;
+        // Current period earnings = monthly salary + expenses
+        // Only add monthly salary if effectiveFrom is today or in the past
+        const todayStr = today.toISOString().split('T')[0];
+        const salaryStarted = !effectiveFrom || effectiveFrom <= todayStr;
+        const currentPeriodSalary = salaryStarted ? (salaryInfo.monthlyAmount || 0) : 0;
+        const currentPeriodEarnings = currentPeriodSalary + currentPeriodExpenses;
         
         // Total earnings = cumulative balance + current period earnings
         const totalEarnings = cumulativeBalance + currentPeriodEarnings;
@@ -238,7 +257,9 @@ async function fetchAllWorkers() {
         });
         
         // Calculate final balance
-        balanceDue = totalEarnings - totalReceivedInPeriod;
+        // For hybrid, also include daily earnings from work records
+        const dailyPart = salaryInfo.salaryType === 'hybrid' ? totalWorkEarnings : 0;
+        balanceDue = totalEarnings + dailyPart - totalReceivedInPeriod;
       } else {
         // For daily workers, use simple calculation
         balanceDue = totalWorkEarnings + totalSpent - totalPayments;
@@ -248,7 +269,9 @@ async function fetchAllWorkers() {
         id: workerId,
         ...workerData,
         totalSpent,
-        totalEarning: salaryInfo.salaryType === 'monthly' ? (totalWorkEarnings + salaryInfo.monthlyAmount) : totalWorkEarnings,
+        totalEarning: (salaryInfo.salaryType === 'monthly' || salaryInfo.salaryType === 'hybrid')
+          ? (totalWorkEarnings + (salaryInfo.monthlyAmount || 0))
+          : totalWorkEarnings,
         totalPayments,
         balanceDue,
         recordCount: recordsSnapshot.size,
@@ -291,16 +314,20 @@ function renderWorkers(workers) {
     const workerCard = document.createElement('div');
     workerCard.className = 'col-md-4 mb-4';
     
-    // Determine badge and icon based on salary type
-    const salaryBadge = worker.salaryType === 'monthly' ? 
-      `<span class="badge bg-success me-1"><i class="fas fa-calendar-alt me-1"></i>Monthly</span>` : 
-      `<span class="badge bg-info me-1"><i class="fas fa-calendar-day me-1"></i>Daily</span>`;
+    // Determine badge based on salary type
+    let salaryBadge = '';
+    if (worker.salaryType === 'monthly') {
+      salaryBadge = `<span class="badge bg-success me-1"><i class="fas fa-calendar-alt me-1"></i>Monthly</span>`;
+    } else if (worker.salaryType === 'hybrid') {
+      salaryBadge = `<span class="badge bg-warning text-dark me-1"><i class="fas fa-layer-group me-1"></i>Daily+Monthly</span>`;
+    } else {
+      salaryBadge = `<span class="badge bg-info me-1"><i class="fas fa-calendar-day me-1"></i>Daily</span>`;
+    }
     
-    // Add monthly salary if applicable
-    const monthlySalaryDisplay = worker.salaryType === 'monthly' ? 
+    const monthlySalaryDisplay = (worker.salaryType === 'monthly' || worker.salaryType === 'hybrid') ? 
       `<div class="mt-2">
-        <small class="text-muted">Monthly Salary</small>
-        <p class="mb-0">₹${worker.monthlySalary.toFixed(2)}</p>
+        <small class="text-muted">Monthly Fixed</small>
+        <p class="mb-0">₹${(worker.monthlySalary || 0).toFixed(2)}</p>
       </div>` : '';
     
     workerCard.innerHTML = `
@@ -372,12 +399,16 @@ async function showWorkerDetails(workerId) {
     const workerSalaryTypeEl = document.getElementById('workerSalaryType');
     const workerMonthlySalaryEl = document.getElementById('workerMonthlySalary');
     
-    if (workerSalaryTypeEl) workerSalaryTypeEl.textContent = salaryInfo.salaryType === 'monthly' ? 'Monthly Salary' : 'Daily Worker';
+    if (workerSalaryTypeEl) {
+      if (salaryInfo.salaryType === 'monthly') workerSalaryTypeEl.textContent = 'Monthly Salary';
+      else if (salaryInfo.salaryType === 'hybrid') workerSalaryTypeEl.textContent = 'Daily + Monthly Fixed';
+      else workerSalaryTypeEl.textContent = 'Daily Worker';
+    }
     if (workerMonthlySalaryEl) {
-      if (salaryInfo.salaryType === 'monthly') {
-        workerMonthlySalaryEl.textContent = `₹${salaryInfo.monthlyAmount.toFixed(2)}`;
+      if (salaryInfo.salaryType === 'monthly' || salaryInfo.salaryType === 'hybrid') {
+        workerMonthlySalaryEl.textContent = `₹${(salaryInfo.monthlyAmount || 0).toFixed(2)} fixed`;
       } else {
-        workerMonthlySalaryEl.textContent = `₹${(salaryInfo.dailyAmount || 0).toFixed(2)} per day`;
+        workerMonthlySalaryEl.textContent = `₹${(salaryInfo.dailyAmount || salaryInfo.monthlyAmount || 0).toFixed(2)} per day`;
       }
     }
 
@@ -404,6 +435,9 @@ async function showWorkerDetails(workerId) {
       const owner = data.ownerName;
       if (owner && ownerBalances.hasOwnProperty(owner)) {
         ownerBalances[owner] += earning + spent;
+      } else {
+        // No owner → assign to Swapnil
+        ownerBalances.Swapnil += earning + spent;
       }
     });
 
@@ -415,8 +449,18 @@ async function showWorkerDetails(workerId) {
       const owner = data.owner;
       if (owner && ownerBalances.hasOwnProperty(owner)) {
         ownerBalances[owner] -= amount;
+      } else {
+        ownerBalances.Swapnil -= amount;
       }
     });
+
+    // Add monthly salary to designated payer (for monthly/hybrid)
+    if ((salaryInfo.salaryType === 'monthly' || salaryInfo.salaryType === 'hybrid') && salaryInfo.monthlyAmount > 0) {
+      const payer = salaryInfo.salaryPayer || 'Swapnil';
+      if (ownerBalances.hasOwnProperty(payer)) {
+        ownerBalances[payer] += salaryInfo.monthlyAmount;
+      }
+    }
 
     const balance = worker.balanceDue;
 
@@ -464,75 +508,91 @@ async function showWorkerDetails(workerId) {
       addPaymentBtn.onclick = () => openAddPaymentModal(workerId);
     }
 
-    // Load records table
-    const recordsBody = document.getElementById('workerRecordsBody');
-    if (recordsBody) {
-      recordsBody.innerHTML = `
-        <tr>
-          <td colspan="7" class="text-center">
-            <div class="spinner-border spinner-border-sm" role="status">
-              <span class="visually-hidden">Loading...</span>
-            </div>
-            Loading records...
-          </td>
-        </tr>
-      `;
+    // Load records with tabs and pagination
+    const PER_PAGE = 15;
+    let workRecords = [];
+    let paymentRecords = [];
+    let workPage = 1;
+    let paymentPage = 1;
 
-      const [sortedWorkRecords, sortedPaymentRecords] = await Promise.all([
-        db.collection('workRecords').where('uid', '==', workerId).orderBy('date', 'desc').get(),
-        db.collection('payments').where('workerId', '==', workerId).orderBy('date', 'desc').get()
-      ]);
+    const [sortedWorkRecords, sortedPaymentRecords] = await Promise.all([
+      db.collection('workRecords').where('uid', '==', workerId).orderBy('date', 'desc').get(),
+      db.collection('payments').where('workerId', '==', workerId).orderBy('date', 'desc').get()
+    ]);
 
-      recordsBody.innerHTML = '';
+    workRecords = sortedWorkRecords.docs.map(d => ({ id: d.id, ...d.data() }));
+    paymentRecords = sortedPaymentRecords.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      sortedWorkRecords.forEach(doc => {
-        const data = doc.data();
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${data.date || 'N/A'}</td>
-          <td><span class="badge bg-primary">Work</span></td>
-          <td>${data.workDetails || ''}</td>
-          <td>₹${parseFloat(data.spent || 0).toFixed(2)}</td>
-          <td class="text-success">+₹${parseFloat(data.earning || 0).toFixed(2)}</td>
-          <td>${data.spentDetails || ''}</td>
-          <td>
-            <button onclick="deleteRecord('${doc.id}')" class="btn btn-sm btn-outline-danger">
-              <i class="fas fa-trash"></i>
-            </button>
-          </td>
-        `;
-        recordsBody.appendChild(row);
-      });
-
-      sortedPaymentRecords.forEach(doc => {
-        const data = doc.data();
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td>${data.date || 'N/A'}</td>
-          <td><span class="badge bg-danger">Payment</span></td>
-          <td>${data.note || 'Payment'}</td>
-          <td></td>
-          <td class="text-danger">-₹${parseFloat(data.amount || 0).toFixed(2)}</td>
-          <td>${data.method || ''} ${data.owner ? '(' + data.owner + ')' : ''}</td>
-          <td>
-            <button onclick="deletePayment('${doc.id}', '${workerId}')" class="btn btn-sm btn-outline-danger">
-              <i class="fas fa-trash"></i>
-            </button>
-          </td>
-        `;
-        recordsBody.appendChild(row);
-      });
-
-      if (sortedWorkRecords.empty && sortedPaymentRecords.empty) {
-        recordsBody.innerHTML = `
+    function renderWorkPage() {
+      const start = (workPage - 1) * PER_PAGE;
+      const items = workRecords.slice(start, start + PER_PAGE);
+      const body = document.getElementById('workRecordsBody');
+      if (!items.length) {
+        body.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No work records</td></tr>';
+      } else {
+        body.innerHTML = items.map(r => `
           <tr>
-            <td colspan="7" class="text-center text-muted py-4">
-              No records found for this worker
-            </td>
+            <td>${r.date || '—'}</td>
+            <td>${r.workDetails || ''}</td>
+            <td>${r.ownerName || '—'}</td>
+            <td>₹${(r.spent || 0).toFixed(2)}</td>
+            <td class="text-success">+₹${(r.earning || 0).toFixed(2)}</td>
+            <td><button onclick="deleteRecord('${r.id}')" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button></td>
           </tr>
-        `;
+        `).join('');
       }
+      renderPagination('workPagination', workPage, Math.ceil(workRecords.length / PER_PAGE), (p) => {
+        workPage = p;
+        renderWorkPage();
+      });
     }
+
+    function renderPaymentPage() {
+      const start = (paymentPage - 1) * PER_PAGE;
+      const items = paymentRecords.slice(start, start + PER_PAGE);
+      const body = document.getElementById('paymentRecordsBody');
+      if (!items.length) {
+        body.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No payments</td></tr>';
+      } else {
+        body.innerHTML = items.map(p => `
+          <tr>
+            <td>${p.date || '—'}</td>
+            <td class="text-danger">-₹${(p.amount || 0).toFixed(2)}</td>
+            <td>${p.method || ''}</td>
+            <td>${p.owner || '—'}</td>
+            <td>${p.note || ''}</td>
+            <td><button onclick="deletePayment('${p.id}', '${workerId}')" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button></td>
+          </tr>
+        `).join('');
+      }
+      renderPagination('paymentPagination', paymentPage, Math.ceil(paymentRecords.length / PER_PAGE), (p) => {
+        paymentPage = p;
+        renderPaymentPage();
+      });
+    }
+
+    function renderPagination(containerId, current, total, onChange) {
+      const container = document.getElementById(containerId);
+      if (!container || total <= 1) {
+        if (container) container.innerHTML = '';
+        return;
+      }
+      let html = '<ul class="pagination pagination-sm mb-0">';
+      for (let i = 1; i <= total; i++) {
+        html += `<li class="page-item ${i === current ? 'active' : ''}"><a class="page-link" href="#" data-page="${i}">${i}</a></li>`;
+      }
+      html += '</ul>';
+      container.innerHTML = html;
+      container.querySelectorAll('.page-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          onChange(parseInt(link.dataset.page));
+        });
+      });
+    }
+
+    renderWorkPage();
+    renderPaymentPage();
 
   } catch (error) {
     console.error("Error in showWorkerDetails:", error);
@@ -550,8 +610,7 @@ async function showWorkerDetails(workerId) {
 
   const workerModalElement = document.getElementById('workerModal');
   if (workerModalElement) {
-    const workerModal = new bootstrap.Modal(workerModalElement);
-    workerModal.show();
+    showModal('workerModal');
   }
 }
 
@@ -786,7 +845,7 @@ async function openEditRecordModal(recordId) {
     workerSelect.appendChild(option);
   });
   
-  const editModal = new bootstrap.Modal(document.getElementById('editRecordModal'));
+  const editModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('editRecordModal'));
   editModal.show();
 }
 
@@ -807,6 +866,13 @@ document.getElementById('saveRecordEditBtn').addEventListener('click', async () 
   try {
     const workerDoc = await db.collection('workers').doc(workerId).get();
     const workerName = workerDoc.exists ? workerDoc.data().id : 'Unknown Worker';
+
+    // Determine earning based on salary type
+    let earning = 0;
+    const salaryInfo = allSalaries[workerId] || {};
+    if (salaryInfo.salaryType === 'daily' || salaryInfo.salaryType === 'hybrid') {
+      earning = parseFloat(salaryInfo.dailyAmount) || parseFloat(salaryInfo.monthlyAmount) || 0;
+    }
     
     await db.collection('workRecords').doc(recordId).update({
       uid: workerId,
@@ -815,7 +881,7 @@ document.getElementById('saveRecordEditBtn').addEventListener('click', async () 
       workDetails,
       spent: spentAmount,
       spentDetails,
-      earning: 500 + spentAmount,
+      earning,
       lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
     });
     
@@ -1004,7 +1070,7 @@ function openAddPaymentModal(workerId) {
   document.getElementById('paymentMethod').value = 'cash';
   document.getElementById('paymentNote').value = '';
   document.getElementById('paymentOwner').value = '';   // new
-  const paymentModal = new bootstrap.Modal(document.getElementById('addPaymentModal'));
+  const paymentModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('addPaymentModal'));
   paymentModal.show();
 }
 

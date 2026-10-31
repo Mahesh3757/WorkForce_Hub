@@ -1,6 +1,23 @@
 // Initialize Firestore
 const db = firebase.firestore();
 
+// Clean leftover modal backdrops (fixes overlay issue)
+function cleanupModals() {
+  document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+  document.body.classList.remove('modal-open');
+  document.body.style.removeProperty('overflow');
+  document.body.style.removeProperty('padding-right');
+}
+
+// Safe modal show helper
+function showModal(modalId) {
+  cleanupModals();
+  const el = document.getElementById(modalId);
+  if (!el) return;
+  const modal = bootstrap.Modal.getOrCreateInstance(el);
+  modal.show();
+}
+
 // Get UID and name from localStorage
 const uid = localStorage.getItem('workerUID');
 const workerName = localStorage.getItem('workerName') || "Worker";
@@ -22,19 +39,19 @@ function logout() {
 
 // Global variable to store worker data
 let workerSalaryType = 'daily';
+let workerDailyAmount = 0;
 let workerMonthlyAmount = 0;
 
-// Load worker salary type and amount from 'salaries' collection
+// Load worker salary type and amounts from 'salaries' collection
 async function loadWorkerSalaryType() {
   try {
     const doc = await db.collection('salaries').doc(uid).get();
     if (doc.exists) {
       const data = doc.data();
       workerSalaryType = data.salaryType || 'daily';
+      workerDailyAmount = parseFloat(data.dailyAmount) || (workerSalaryType === 'daily' ? (parseFloat(data.monthlyAmount) || 0) : 0);
       workerMonthlyAmount = parseFloat(data.monthlyAmount) || 0;
-      console.log(`Salary type: ${workerSalaryType}, Amount: ${workerMonthlyAmount}`);
-    } else {
-      console.warn("Salary data not found; using defaults.");
+      console.log(`Type: ${workerSalaryType}, Daily: ${workerDailyAmount}, Monthly: ${workerMonthlyAmount}`);
     }
   } catch (error) {
     console.error("Error loading salary type:", error);
@@ -96,7 +113,7 @@ function openEditModal(docId) {
         document.getElementById('editEventManager').value = data.eventManager || '';
         document.getElementById('editOwnerName').value = data.ownerName || '';
 
-        new bootstrap.Modal(document.getElementById('editModal')).show();
+        showModal('editModal');
       } else {
         alert("Record not found!");
       }
@@ -122,7 +139,8 @@ document.getElementById('saveEditBtn').addEventListener('click', async () => {
     return;
   }
 
-  const earning = workerSalaryType === 'daily' ? workerMonthlyAmount : 0;
+  // Daily earning for daily or hybrid workers
+  const earning = (workerSalaryType === 'daily' || workerSalaryType === 'hybrid') ? workerDailyAmount : 0;
 
   try {
    await db.collection("workRecords").doc(docId).update({
@@ -157,7 +175,7 @@ async function fetchMyWorks() {
   try {
     const worksTableBody = document.getElementById('worksTableBody');
     worksTableBody.innerHTML = '<tr><td colspan="9" class="text-center">Loading records...</td></tr>';
-    new bootstrap.Modal(document.getElementById('worksModal')).show();
+    showModal('worksModal');
 
     const fromDate = document.getElementById('filterFromDate').value;
     const toDate = document.getElementById('filterToDate').value;
@@ -206,7 +224,77 @@ async function fetchMyWorks() {
   }
 }
 
-// ======= Fixed payment details logic for daily workers =======
+// Show owner-wise balance (only if > 0)
+function showOwnerBalances(ownerBalances) {
+  let html = '';
+  for (const [owner, amount] of Object.entries(ownerBalances)) {
+    if (amount > 0) {
+      html += `<div class="d-flex justify-content-between mb-1">
+        <span>${owner} owes:</span>
+        <strong class="text-danger">₹${amount.toFixed(2)}</strong>
+      </div>`;
+    }
+  }
+  if (!html) html = '<div class="text-muted small">No pending from any owner</div>';
+  
+  // Find or create container
+  let container = document.getElementById('ownerBalanceContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'ownerBalanceContainer';
+    container.className = 'mt-3 p-2 bg-light rounded';
+    const balanceEl = document.getElementById('balanceAmountDisplay');
+    if (balanceEl && balanceEl.parentElement) {
+      balanceEl.parentElement.after(container);
+    }
+  }
+  container.innerHTML = `<small class="text-muted d-block mb-1">Pending from:</small>${html}`;
+}
+
+// Calculate owner balances from work records and payments
+async function calculateOwnerBalances() {
+  const ownerBalances = { Swapnil: 0, Shubham: 0 };
+  
+  const [workSnap, paySnap, salDoc] = await Promise.all([
+    db.collection('workRecords').where('uid', '==', uid).get(),
+    db.collection('payments').where('workerId', '==', uid).get(),
+    db.collection('salaries').doc(uid).get()
+  ]);
+  
+  const salaryInfo = salDoc.exists ? salDoc.data() : {};
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const effectiveFrom = salaryInfo.periodEffectiveFrom || null;
+  const salaryStarted = !effectiveFrom || effectiveFrom <= todayStr;
+  
+  // Add earnings and expenses to owner
+  workSnap.forEach(doc => {
+    const d = doc.data();
+    const owner = d.ownerName || 'Swapnil';
+    if (ownerBalances[owner] !== undefined) {
+      ownerBalances[owner] += (parseFloat(d.earning) || 0) + (parseFloat(d.spent) || 0);
+    }
+  });
+  
+  // Add monthly salary to designated payer (only if salary has started)
+  if (salaryStarted && (salaryInfo.salaryType === 'monthly' || salaryInfo.salaryType === 'hybrid') && salaryInfo.monthlyAmount > 0) {
+    const payer = salaryInfo.salaryPayer || 'Swapnil';
+    if (ownerBalances[payer] !== undefined) {
+      ownerBalances[payer] += salaryInfo.monthlyAmount;
+    }
+  }
+  
+  // Subtract payments
+  paySnap.forEach(doc => {
+    const d = doc.data();
+    const owner = d.owner || 'Swapnil';
+    if (ownerBalances[owner] !== undefined) {
+      ownerBalances[owner] -= parseFloat(d.amount) || 0;
+    }
+  });
+  
+  return ownerBalances;
+}
 async function showPaymentDetailsDaily() {
   const workSnapshot = await db.collection('workRecords').where('uid', '==', uid).get();
   let totalEarnings = 0;
@@ -258,7 +346,11 @@ async function showPaymentDetailsDaily() {
   document.getElementById('balanceStatus').textContent = balance > 0 ? 'Payment Due' : balance < 0 ? 'Advance Paid' : 'Fully Paid';
   balanceEl.className = balance > 0 ? 'balance-negative' : balance < 0 ? 'balance-positive' : '';
 
-  new bootstrap.Modal(document.getElementById('paymentDetailsModal')).show();
+  // Show owner-wise balance
+  const ownerBal = await calculateOwnerBalances();
+  showOwnerBalances(ownerBal);
+
+  showModal('paymentDetailsModal');
 }
 
 // ======= Fixed payment details logic for monthly workers =======
@@ -335,11 +427,15 @@ async function showPaymentDetailsMonthly() {
   
   // Calculate total expenses from previous periods
   let previousPeriodsExpenses = 0;
+  let previousPeriodsDailyEarnings = 0;
   workSnapshot.forEach(doc => {
     const data = doc.data();
     const dateStr = data.date;
     if (typeof dateStr === 'string' && dateStr < startStr) {
       previousPeriodsExpenses += parseFloat(data.spent) || 0;
+      if (workerSalaryType === 'hybrid') {
+        previousPeriodsDailyEarnings += parseFloat(data.earning) || 0;
+      }
     }
   });
   
@@ -360,11 +456,22 @@ async function showPaymentDetailsMonthly() {
     }
   });
   
-  // Cumulative balance = total salary earned + previous expenses - total payments received
-  cumulativeBalance = totalSalaryEarned + previousPeriodsExpenses - totalPaymentsBeforePeriod;
+  // Cumulative balance = total salary earned + previous expenses + previous daily earnings - total payments received
+  cumulativeBalance = totalSalaryEarned + previousPeriodsExpenses + previousPeriodsDailyEarnings - totalPaymentsBeforePeriod;
   
   // Current period earnings = monthly salary + expenses in current period
-  const currentPeriodEarnings = workerMonthlyAmount + currentPeriodExpenses;
+  // For hybrid, also add daily earnings from work records in this period
+  let currentPeriodDailyEarnings = 0;
+  if (workerSalaryType === 'hybrid') {
+    workSnapshot.forEach(doc => {
+      const data = doc.data();
+      const dateStr = data.date;
+      if (typeof dateStr === 'string' && dateStr >= startStr && dateStr < endStr) {
+        currentPeriodDailyEarnings += parseFloat(data.earning) || 0;
+      }
+    });
+  }
+  const currentPeriodEarnings = workerMonthlyAmount + currentPeriodExpenses + currentPeriodDailyEarnings;
   
   // Total earnings = cumulative balance + current period earnings
   const totalEarnings = cumulativeBalance + currentPeriodEarnings;
@@ -409,7 +516,11 @@ async function showPaymentDetailsMonthly() {
   document.getElementById('balanceStatus').textContent = balance > 0 ? 'Payment Due' : balance < 0 ? 'Advance Paid' : 'Fully Paid';
   balanceEl.className = balance > 0 ? 'balance-negative' : balance < 0 ? 'balance-positive' : '';
 
-  new bootstrap.Modal(document.getElementById('paymentDetailsModal')).show();
+  // Show owner-wise balance
+  const ownerBal = await calculateOwnerBalances();
+  showOwnerBalances(ownerBal);
+
+  showModal('paymentDetailsModal');
 }
 
 function getSalaryPeriod() {
@@ -433,7 +544,7 @@ function getSalaryPeriod() {
 // Main showPaymentDetails decides which to use
 async function showPaymentDetails() {
   await loadWorkerSalaryType();
-  if (workerSalaryType === 'monthly') {
+  if (workerSalaryType === 'monthly' || workerSalaryType === 'hybrid') {
     await showPaymentDetailsMonthly();
   } else {
     await showPaymentDetailsDaily();
@@ -455,7 +566,8 @@ document.getElementById('workForm').addEventListener('submit', async (e) => {
     return;
   }
 
-  const earning = workerSalaryType === 'daily' ? workerMonthlyAmount : 0;
+  // Daily earning for daily or hybrid workers
+  const earning = (workerSalaryType === 'daily' || workerSalaryType === 'hybrid') ? workerDailyAmount : 0;
 
   try {
     await db.collection("workRecords").add({

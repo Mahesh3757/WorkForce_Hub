@@ -2,66 +2,51 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Salary Management</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    .sidebar { min-height: 100vh; background-color: #343a40; }
-    .sidebar .nav-link { color: rgba(255, 255, 255, 0.75); }
-    .sidebar .nav-link:hover, .sidebar .nav-link.active {
-      color: white; background-color: rgba(255, 255, 255, 0.1);
-    }
-    .main-content { padding: 20px; }
-    .worker-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-      transition: all 0.3s ease;
-    }
+    :root { --safe-top: env(safe-area-inset-top); --safe-bottom: env(safe-area-inset-bottom); }
+    body { padding-top: var(--safe-top); padding-bottom: var(--safe-bottom); -webkit-tap-highlight-color: transparent; }
+    .btn { min-height: 44px; touch-action: manipulation; }
+    .form-control, .form-select { font-size: 16px; min-height: 44px; }
+    .modal-dialog { margin: 10px auto; max-width: 95%; }
+    .modal-body { max-height: 70vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .table-responsive { -webkit-overflow-scrolling: touch; }
   </style>
 </head>
-<body>
-<div class="container-fluid">
-  <div class="row">
-    <!-- Sidebar -->
-    <div class="col-md-2 sidebar p-0">
-      <div class="p-3 text-white">
-        <h4>Admin Dashboard</h4>
-        <hr class="bg-light">
-      </div>
-      <ul class="nav flex-column">
-        <li class="nav-item"><a class="nav-link" href="admin.html"><i class="fas fa-arrow-left me-2"></i>Back to Dashboard</a></li>
-      </ul>
-    </div>
-
-    <!-- Main Content -->
-    <div class="col-md-10 main-content">
-      <h3 class="mb-4"><i class="fas fa-wallet me-2"></i>Salary Payment Setup</h3>
-      <div class="table-responsive">
-        <table class="table table-striped table-hover">
-          <thead class="table-dark">
-            <tr>
-              <th>Worker Name</th>
-              <th>Salary Type</th>
-              <th>Monthly Salary Amount (₹)</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="salaryTableBody">
-            <!-- Workers loaded here -->
-          </tbody>
-        </table>
-      </div>
-    </div>
+<body class="bg-light">
+<div class="container py-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="fas fa-wallet me-2"></i>Salary Setup</h4>
+    <a href="admin.html" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped">
+      <thead class="table-dark">
+        <tr>
+          <th>Worker</th>
+          <th>Type</th>
+          <th>Daily</th>
+          <th>Monthly</th>
+          <th>Start Date</th>
+          <th>Paid By</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="salaryTableBody"></tbody>
+    </table>
   </div>
 </div>
 
-<!-- Edit Salary Modal -->
-<div class="modal fade" id="editSalaryModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="editSalaryModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Update Salary Details</h5>
+        <h5 class="modal-title">Update Salary</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -69,25 +54,41 @@
         <div class="mb-3">
           <label class="form-label">Salary Type</label>
           <select id="editSalaryType" class="form-select">
-            <option value="daily">Daily</option>
-            <option value="monthly">Monthly</option>
+            <option value="daily">Daily Only</option>
+            <option value="monthly">Monthly Only</option>
+            <option value="hybrid">Daily + Monthly Fixed</option>
           </select>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Monthly Salary Amount (₹)</label>
-          <input type="number" class="form-control" id="editMonthlyAmount" placeholder="Enter amount">
-          <small class="text-muted">For daily salary workers, keep this empty or zero.</small>
+        <div class="mb-3" id="dailyAmountGroup">
+          <label class="form-label">Daily Rate (₹)</label>
+          <input type="number" class="form-control" id="editDailyAmount" min="0" inputmode="decimal">
+        </div>
+        <div class="mb-3" id="monthlyAmountGroup">
+          <label class="form-label">Monthly Fixed (₹)</label>
+          <input type="number" class="form-control" id="editMonthlyAmount" min="0" inputmode="decimal">
+        </div>
+        <div class="mb-3" id="periodTypeGroup">
+          <label class="form-label">Salary Start Date</label>
+          <input type="date" id="editPeriodStartDate" class="form-control">
+          <small class="text-muted">Salary will be calculated from this date onwards. Previous records unchanged.</small>
+        </div>
+        <div class="mb-3" id="paidByGroup">
+          <label class="form-label">Monthly Paid By</label>
+          <select id="editPaidBy" class="form-select">
+            <option value="Swapnil">Swapnil</option>
+            <option value="Shubham">Shubham</option>
+          </select>
+          <small class="text-muted">Who pays the monthly salary</small>
         </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary" onclick="saveSalaryDetails()">Save Changes</button>
+        <button class="btn btn-primary" id="saveSalaryBtn">Save</button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Scripts -->
 <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -95,99 +96,99 @@
 <script>
 const db = firebase.firestore();
 
-// Load workers: fetch unique workerName + UID from workRecords, then salary from 'salaries'
+function toggleSalaryFields() {
+  const type = document.getElementById('editSalaryType').value;
+  const showMonthly = (type === 'monthly' || type === 'hybrid');
+  document.getElementById('dailyAmountGroup').style.display = (type === 'daily' || type === 'hybrid') ? 'block' : 'none';
+  document.getElementById('monthlyAmountGroup').style.display = showMonthly ? 'block' : 'none';
+  document.getElementById('periodTypeGroup').style.display = showMonthly ? 'block' : 'none';
+  document.getElementById('paidByGroup').style.display = showMonthly ? 'block' : 'none';
+}
+
 async function loadWorkers() {
-  try {
-    const salaryTableBody = document.getElementById('salaryTableBody');
-    salaryTableBody.innerHTML = `
-      <tr><td colspan="4" class="text-center">Loading...</td></tr>
-    `;
-
-    const workSnapshot = await db.collection('workRecords').get();
-    const uniqueWorkers = {}; // uid -> workerName
-
-    workSnapshot.forEach(doc => {
-      const data = doc.data();
-      if (data.uid && data.workerName && !uniqueWorkers[data.uid]) {
-        uniqueWorkers[data.uid] = data.workerName;
+  const tbody = document.getElementById('salaryTableBody');
+  tbody.innerHTML = '<tr><td colspan="6" class="text-center">Loading...</td></tr>';
+  
+  // Fetch from workers collection (same as admin & login)
+  const workersSnap = await db.collection('workers').get();
+  const workers = {};
+  workersSnap.forEach(d => {
+    const data = d.data();
+    workers[d.id] = data.name || d.id;
+  });
+  
+  tbody.innerHTML = '';
+  if (Object.keys(workers).length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No workers registered</td></tr>';
+    return;
+  }
+  for (const uid in workers) {
+    let type = 'daily', daily = 0, monthly = 0, startDate = '', paidBy = 'Swapnil';
+    try {
+      const s = await db.collection('salaries').doc(uid).get();
+      if (s.exists) {
+        const d = s.data();
+        type = d.salaryType || 'daily';
+        daily = parseFloat(d.dailyAmount) || (type === 'daily' ? (parseFloat(d.monthlyAmount) || 0) : 0);
+        monthly = (type === 'monthly' || type === 'hybrid') ? (parseFloat(d.monthlyAmount) || 0) : 0;
+        startDate = d.periodEffectiveFrom || '';
+        paidBy = d.salaryPayer || 'Swapnil';
       }
-    });
-
-    salaryTableBody.innerHTML = '';
-
-    if (Object.keys(uniqueWorkers).length === 0) {
-      salaryTableBody.innerHTML = `
-        <tr><td colspan="4" class="text-center text-muted">No workers found</td></tr>
-      `;
-      return;
-    }
-
-    for (const uid in uniqueWorkers) {
-      const workerName = uniqueWorkers[uid];
-      let salaryType = 'Not set';
-      let monthlyAmount = 0;
-
-      try {
-        const salaryDoc = await db.collection('salaries').doc(uid).get();
-        if (salaryDoc.exists) {
-          const salaryData = salaryDoc.data();
-          salaryType = salaryData.salaryType || 'Not set';
-          monthlyAmount = salaryData.monthlyAmount || 0;
-        }
-      } catch (e) {
-        console.error(`Failed to get salary for ${workerName}:`, e);
-      }
-
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td>${workerName}</td>
-        <td>${salaryType}</td>
-        <td>₹${monthlyAmount}</td>
-        <td>
-          <button class="btn btn-sm btn-primary" 
-            onclick="openEditModal('${uid}', '${salaryType}', '${monthlyAmount}')">
-            <i class="fas fa-edit"></i> Edit
-          </button>
-        </td>
-      `;
-      salaryTableBody.appendChild(row);
-    }
-
-  } catch (e) {
-    console.error(e);
-    alert('Failed to load workers');
+    } catch (e) {}
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${workers[uid]}</td>
+      <td><span class="badge bg-secondary">${type}</span></td>
+      <td>₹${daily}</td>
+      <td>₹${monthly}</td>
+      <td>${startDate || '—'}</td>
+      <td>${paidBy}</td>
+      <td><button class="btn btn-sm btn-primary edit-btn" data-uid="${uid}" data-type="${type}" data-daily="${daily}" data-monthly="${monthly}" data-start="${startDate}" data-payer="${paidBy}">Edit</button></td>`;
+    tbody.appendChild(tr);
   }
 }
 
-// Open modal
-function openEditModal(workerId, salaryType, monthlyAmount) {
-  document.getElementById('editWorkerId').value = workerId;
-  document.getElementById('editSalaryType').value = salaryType;
-  document.getElementById('editMonthlyAmount').value = monthlyAmount;
+function openEditModal(uid, type, daily, monthly, startDate, paidBy) {
+  document.getElementById('editWorkerId').value = uid;
+  document.getElementById('editSalaryType').value = type || 'daily';
+  document.getElementById('editDailyAmount').value = daily || 0;
+  document.getElementById('editMonthlyAmount').value = monthly || 0;
+  document.getElementById('editPeriodStartDate').value = startDate || new Date().toISOString().split('T')[0];
+  document.getElementById('editPaidBy').value = paidBy || 'Swapnil';
+  toggleSalaryFields();
   new bootstrap.Modal(document.getElementById('editSalaryModal')).show();
 }
 
-// Save salary to 'salaries' collection
-async function saveSalaryDetails() {
+document.getElementById('editSalaryType').addEventListener('change', toggleSalaryFields);
+
+document.getElementById('saveSalaryBtn').addEventListener('click', async () => {
   const workerId = document.getElementById('editWorkerId').value;
   const salaryType = document.getElementById('editSalaryType').value;
+  const dailyAmount = parseFloat(document.getElementById('editDailyAmount').value) || 0;
   const monthlyAmount = parseFloat(document.getElementById('editMonthlyAmount').value) || 0;
-
+  const startDate = document.getElementById('editPeriodStartDate').value;
+  
+  const data = { 
+    salaryType, 
+    dailyAmount, 
+    monthlyAmount,
+    periodEffectiveFrom: (salaryType === 'monthly' || salaryType === 'hybrid') && startDate ? startDate : null,
+    salaryPayer: (salaryType === 'monthly' || salaryType === 'hybrid') ? document.getElementById('editPaidBy').value : null
+  };
   try {
-    await db.collection('salaries').doc(workerId).set({
-      salaryType,
-      monthlyAmount
-    });
-    alert('Salary details updated!');
+    await db.collection('salaries').doc(workerId).set(data);
     bootstrap.Modal.getInstance(document.getElementById('editSalaryModal')).hide();
     loadWorkers();
   } catch (e) {
-    console.error(e);
-    alert('Failed to update salary');
+    alert('Failed: ' + e.message);
   }
-}
+});
 
-// Init
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.edit-btn');
+  if (btn) openEditModal(btn.dataset.uid, btn.dataset.type, btn.dataset.daily, btn.dataset.monthly, btn.dataset.start, btn.dataset.payer);
+});
+
 document.addEventListener('DOMContentLoaded', loadWorkers);
 </script>
 </body>

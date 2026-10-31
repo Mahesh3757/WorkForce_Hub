@@ -1,12 +1,56 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Work Logger Login</title>
+  <title>SP Events & SFX</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link rel="manifest" href="manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0d6efd">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <style>
+    #installModal {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5);
+      display: none; align-items: center; justify-content: center;
+      z-index: 9999; padding: 20px;
+    }
+    #installModal.show { display: flex; }
+    .install-card {
+      background: white; border-radius: 16px;
+      max-width: 400px; width: 100%;
+      padding: 24px; text-align: center;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+    }
+    .install-icon {
+      width: 64px; height: 64px; border-radius: 14px;
+      background: #0d6efd; color: white;
+      display: grid; place-items: center;
+      font-size: 28px; font-weight: 700;
+      margin: 0 auto 16px;
+    }
+    .install-features {
+      text-align: left; background: #f8f9fa;
+      border-radius: 12px; padding: 16px;
+      margin: 16px 0;
+    }
+    .install-features li {
+      list-style: none; padding: 6px 0;
+      display: flex; align-items: center; gap: 10px;
+      font-size: 14px; color: #333;
+    }
+    .install-features li::before {
+      content: "✓"; color: #0d6efd; font-weight: bold;
+    }
+    .install-btns { display: flex; gap: 12px; margin-top: 16px; }
+    .install-btns button { flex: 1; min-height: 44px; }
+    .install-note { font-size: 12px; color: #666; margin-top: 12px; }
+  </style>
 </head>
 <body class="bg-light">
   <div class="container mt-5">
-    <h2 class="text-center">Work Logger - Login</h2>
+    <h2 class="text-center">SP Events & SFX</h2>
     <div class="row justify-content-center">
       <div class="col-md-6">
         <form id="loginForm">
@@ -34,12 +78,80 @@
     </div>
   </div>
 
+  <!-- Install Modal -->
+  <div id="installModal">
+    <div class="install-card">
+      <div class="install-icon">SP</div>
+      <h4 style="margin-bottom:4px">Install App</h4>
+      <p style="color:#666;font-size:14px;margin-bottom:0">Using the app is better than using it in the browser.</p>
+      
+      <div class="install-features">
+        <p style="font-size:13px;color:#666;margin-bottom:8px">Install it for a smoother experience with:</p>
+        <ul style="margin:0;padding:0">
+          <li>Faster loading and smoother app-like feel</li>
+          <li>Quick access directly from your home screen</li>
+          <li>Cleaner full-screen experience without browser clutter</li>
+        </ul>
+      </div>
+      
+      <div class="install-btns">
+        <button id="notNowBtn" class="btn btn-outline-secondary">NOT NOW</button>
+        <button id="installBtn" class="btn btn-primary">INSTALL</button>
+      </div>
+      <p class="install-note">You can install now or later. If you close this, it will show again after 1 day.</p>
+    </div>
+  </div>
+
   <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore-compat.js"></script>
   <script src="firebase-config.js"></script>
+  
   <script>
-    const ADMIN_PASSWORD = "Admin@123"; // You can make this more secure later
+    let deferredPrompt = null;
+    const installModal = document.getElementById('installModal');
+
+    const dismissed = localStorage.getItem('installDismissed');
+    const dismissedTime = dismissed ? parseInt(dismissed) : 0;
+    const oneDay = 24 * 60 * 60 * 1000;
+
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) {
+      // Already installed
+    } else if (Date.now() - dismissedTime > oneDay) {
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        installModal.classList.add('show');
+      });
+    }
+
+    document.getElementById('installBtn').addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const result = await deferredPrompt.userChoice;
+      if (result.outcome === 'accepted') installModal.classList.remove('show');
+      deferredPrompt = null;
+    });
+
+    document.getElementById('notNowBtn').addEventListener('click', () => {
+      localStorage.setItem('installDismissed', Date.now().toString());
+      installModal.classList.remove('show');
+    });
+
+    installModal.addEventListener('click', (e) => {
+      if (e.target === installModal) {
+        localStorage.setItem('installDismissed', Date.now().toString());
+        installModal.classList.remove('show');
+      }
+    });
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+  </script>
+
+  <script>
+    const ADMIN_PASSWORD = "Admin@123";
 
     function toggleFields() {
       const profile = document.getElementById("profile").value;
@@ -49,20 +161,19 @@
     function register() {
       const name = prompt("Enter worker name:");
       const password = prompt("Set a password:");
-
       if (name && password) {
         const db = firebase.firestore();
         db.collection("workers").doc(name).set({
-          password: password
-        }).then(() => {
-          alert("Registered successfully!");
-        }).catch(err => alert("Error: " + err));
+          name: name,
+          password: password,
+          createdAt: new Date().toISOString().split('T')[0]
+        }).then(() => alert("Registered successfully!"))
+          .catch(err => alert("Error: " + err));
       }
     }
 
     document.getElementById("loginForm").addEventListener("submit", async (e) => {
       e.preventDefault();
-
       const profile = document.getElementById("profile").value;
       const password = document.getElementById("password").value;
 
@@ -75,22 +186,17 @@
       } else {
         const name = document.getElementById("workerName").value.trim();
         if (!name) return alert("Enter worker name.");
-
         const db = firebase.firestore();
         const doc = await db.collection("workers").doc(name).get();
-
         if (!doc.exists) return alert("Worker not found.");
         if (doc.data().password !== password) return alert("Incorrect password.");
-
-        // Login success
-        localStorage.setItem("workerUID", name);      // Unique ID
-        localStorage.setItem("workerName", name);     // Display name
-        window.location.href = `worker.html`;
-
+        localStorage.setItem("workerUID", name);
+        localStorage.setItem("workerName", name);
+        window.location.href = "worker.html";
       }
     });
 
-    toggleFields(); // Initialize on load
+    toggleFields();
   </script>
 </body>
 </html>
